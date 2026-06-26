@@ -2,8 +2,6 @@ plugins {
     id 'java'
     id 'org.springframework.boot' version '2.7.18'
     id 'io.spring.dependency-management' version '1.0.15.RELEASE'
-    // QueryDSL 플러그인
-    id "com.ewerk.gradle.plugins.querydsl" version "1.0.10"
 }
 
 group = 'com.kosta'
@@ -27,39 +25,48 @@ configurations {
 }
 
 dependencies {
+    // Spring Boot Starters
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-security'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
 
+    // Database
     runtimeOnly 'org.mariadb.jdbc:mariadb-java-client'
 
-    // QueryDSL 관련 의존성 (버전 직접 명시)
-    implementation "com.querydsl:querydsl-jpa:5.0.0"
-    implementation "com.querydsl:querydsl-apt:5.0.0"
-
+    // Lombok
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
 
-    testImplementation 'org.springframework.boot:spring-boot-starter-test'
-}
+    // QueryDSL (Jakarta 패키지 전환 대비 및 Gradle 7+ 호환을 위해 jakarta 기표 사용 가능)
+    // Spring Boot 2.7.x는 기본적으로 javax를 쓰지만 QueryDSL 5.0은 아래 설정이 가장 안정적입니다.
+    implementation 'com.querydsl:querydsl-jpa:5.0.0'
+    annotationProcessor "com.querydsl:querydsl-apt:5.0.0:jpa" // :jpa 필수
 
-// QueryDSL 빌드 설정
-def querydslDir = "$buildDir/generated/querydsl"
-querydsl {
-    jpa = true
-    querydslSourcesDir = querydslDir
-}
-sourceSets {
-    main.java.srcDir querydslDir
-}
-configurations {
-    querydsl.extendsFrom compileClasspath
-}
-compileQuerydsl {
-    options.annotationProcessorPath = configurations.querydsl
+    // Test
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
 }
 
 tasks.named('test') {
     useJUnitPlatform()
+}
+
+/*
+ * QueryDSL QClass 생성 설정 (Gradle 7.x 이상 표준 방식)
+ */
+def querydslDir = layout.buildDirectory.dir("generated/querydsl").get().asFile
+
+sourceSets {
+    main.java.srcDirs += querydslDir
+}
+
+// 컴파일 시 어노테이션 프로세서가 QClass를 해당 디렉토리에 생성하도록 설정
+tasks.withType(JavaCompile).configureEach {
+    options.annotationProcessorPath = configurations.annotationProcessor
+    options.generatedSourceOutputDirectory = file(querydslDir)
+}
+
+// clean 태스크 실행 시 생성된 QClass 폴더도 함께 삭제
+clean {
+    delete file(querydslDir)
 }
