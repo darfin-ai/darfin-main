@@ -61,24 +61,28 @@ public class AuthService {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "이메일 또는 비밀번호가 올바르지 않습니다.");
         }
 
-        String accessToken  = jwtTokenProvider.generateAccessToken(user);
-        String refreshToken = jwtTokenProvider.generateRefreshToken(user.getEmail());
+        return issueTokens(user, ipAddress, userAgent);
+    }
 
-        // 기존 Refresh Token 삭제 후 새 토큰 저장 (단일 세션 갱신 정책)
-        refreshTokensRepository.deleteByUser(user);
-        refreshTokensRepository.save(RefreshTokens.builder()
-                .user(user)
-                .token(refreshToken)
-                .ipAddress(ipAddress)
-                .userAgent(userAgent)
-                .expiredAt(LocalDateTime.now().plusWeeks(2))
-                .build());
+    // -------------------------------------------------------------------------
+    // 소셜 로그인 (카카오 / 구글 공통)
+    // -------------------------------------------------------------------------
 
-        return TokenResponse.builder()
-                .accessToken(accessToken)
-                .refreshToken(refreshToken)
-                .tokenType("Bearer")
-                .build();
+    @Transactional
+    public TokenResponse socialLogin(String email, String nickname, String profileImageUrl,
+                                     String provider, String providerUserId,
+                                     String ipAddress, String userAgent) {
+
+        // 1순위: provider + providerUserId로 기존 소셜 계정 조회
+        Users user = usersRepository
+                .findByProviderAndProviderUserId(provider, providerUserId)
+                .orElseGet(() ->
+                    // 2순위: 같은 이메일의 LOCAL 계정이 있으면 소셜 계정 병합
+                    usersRepository.findByEmail(email)
+                            .orElseGet(() -> createSocialUser(email, nickname, profileImageUrl, provider, providerUserId))
+                );
+
+        return issueTokens(user, ipAddress, userAgent);
     }
 
     // -------------------------------------------------------------------------
@@ -104,7 +108,6 @@ public class AuthService {
         String newAccessToken  = jwtTokenProvider.generateAccessToken(user);
         String newRefreshToken = jwtTokenProvider.generateRefreshToken(user.getEmail());
 
-        // 사용된 Refresh Token 즉시 폐기 후 새 토큰 발급 (RTR)
         refreshTokensRepository.delete(saved);
         refreshTokensRepository.save(RefreshTokens.builder()
                 .user(user)
@@ -127,8 +130,44 @@ public class AuthService {
 
     @Transactional
     public void logout(String refreshToken) {
-        // 토큰이 없어도 정상 처리 (멱등성) — 이미 로그아웃된 경우도 204 반환
         refreshTokensRepository.findByToken(refreshToken)
                 .ifPresent(refreshTokensRepository::delete);
+    }
+
+    // -------------------------------------------------------------------------
+    // Private helpers
+    // -------------------------------------------------------------------------
+
+    private Users createSocialUser(String email, String nickname, String profileImageUrl,
+                                   String provider, String providerUserId) {
+        Users user = Users.builder()
+                .email(email)
+                .nickname(nickname != null ? nickname : email.split("@")[0])
+                .phone("")
+                .profileImage(profileImageUrl)
+                .provider(provider)
+                .providerUserId(providerUserId)
+                .build();
+        return usersRepository.save(user);
+    }
+
+    private TokenResponse issueTokens(Users user, String ipAddress, String userAgent) {
+        String accessToken  = jwtTokenProvider.generateAccessToken(user);
+        String refreshToken = jwtTokenProvider.generateRefreshToken(user.getEmail());
+
+        refreshTokensRepository.deleteByUser(user);
+        refreshTokensRepository.save(RefreshTokens.builder()
+                .user(user)
+                .token(refreshToken)
+                .ipAddress(ipAddress)
+                .userAgent(userAgent)
+                .expiredAt(LocalDateTime.now().plusWeeks(2))
+                .build());
+
+        return TokenResponse.builder()
+                .accessToken(accessToken)
+                .refreshToken(refreshToken)
+                .tokenType("Bearer")
+                .build();
     }
 }
