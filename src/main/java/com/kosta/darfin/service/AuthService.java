@@ -1,5 +1,7 @@
 package com.kosta.darfin.service;
 
+import com.kosta.darfin.dto.auth.FindIdRequest;
+import com.kosta.darfin.dto.auth.FindIdResponse;
 import com.kosta.darfin.dto.auth.LoginRequest;
 import com.kosta.darfin.dto.auth.SignupRequest;
 import com.kosta.darfin.dto.auth.TokenResponse;
@@ -15,17 +17,24 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class AuthService {
 
+    private static final String TEMP_PW_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$";
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
     private final UsersRepository usersRepository;
     private final RefreshTokensRepository refreshTokensRepository;
     private final JwtTokenProvider jwtTokenProvider;
     private final PasswordEncoder passwordEncoder;
+    private final MailService mailService;
 
     // -------------------------------------------------------------------------
     // 회원가입
@@ -40,11 +49,33 @@ public class AuthService {
         Users user = Users.builder()
                 .email(request.getEmail())
                 .password(passwordEncoder.encode(request.getPassword()))
+                .name(request.getName())
                 .phone(request.getPhone())
                 .nickname(request.getNickname())
                 .build();
 
         usersRepository.save(user);
+    }
+
+    // -------------------------------------------------------------------------
+    // 아이디 찾기
+    // -------------------------------------------------------------------------
+
+    public List<FindIdResponse> findId(FindIdRequest request) {
+        List<Users> users = usersRepository
+                .findByNameAndPhoneOrderByCreatedAtAsc(request.getName(), request.getPhone());
+
+        if (users.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,
+                    "일치하는 계정을 찾을 수 없습니다. 이름과 전화번호를 확인해주세요.");
+        }
+
+        return users.stream()
+                .map(u -> FindIdResponse.builder()
+                        .email(u.getEmail())
+                        .provider(u.getProvider())
+                        .build())
+                .collect(Collectors.toList());
     }
 
     // -------------------------------------------------------------------------
@@ -56,6 +87,10 @@ public class AuthService {
         Users user = usersRepository.findByEmail(request.getEmail())
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.UNAUTHORIZED, "이메일 또는 비밀번호가 올바르지 않습니다."));
+
+        if ("DELETED".equals(user.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "이메일 또는 비밀번호가 올바르지 않습니다.");
+        }
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "이메일 또는 비밀번호가 올바르지 않습니다.");
@@ -135,8 +170,36 @@ public class AuthService {
     }
 
     // -------------------------------------------------------------------------
+    // 비밀번호 재설정
+    // -------------------------------------------------------------------------
+
+    @Transactional
+    public void resetPassword(String email) {
+        Users user = usersRepository.findByEmail(email)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "등록된 이메일을 찾을 수 없습니다."));
+
+        if (!"LOCAL".equals(user.getProvider())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "소셜 로그인 계정은 비밀번호 재설정을 지원하지 않습니다.");
+        }
+
+        String tempPassword = generateTempPassword();
+        user.updatePassword(passwordEncoder.encode(tempPassword));
+        mailService.sendTempPasswordMail(email, tempPassword);
+    }
+
+    // -------------------------------------------------------------------------
     // Private helpers
     // -------------------------------------------------------------------------
+
+    private String generateTempPassword() {
+        StringBuilder sb = new StringBuilder(12);
+        for (int i = 0; i < 12; i++) {
+            sb.append(TEMP_PW_CHARS.charAt(SECURE_RANDOM.nextInt(TEMP_PW_CHARS.length())));
+        }
+        return sb.toString();
+    }
 
     private Users createSocialUser(String email, String nickname, String profileImageUrl,
                                    String provider, String providerUserId) {

@@ -26,6 +26,9 @@ public class Users {
     @Column(length = 255)
     private String password;
 
+    @Column(length = 50)
+    private String name;
+
     @Column(nullable = false, length = 255)
     private String phone;
 
@@ -61,4 +64,24 @@ public class Users {
     @Builder.Default
     @Column(nullable = false)
     private LocalDateTime updatedAt = LocalDateTime.now();
+
+    public void updatePassword(String encodedPassword) {
+        this.password  = encodedPassword;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void updateNickname(String nickname) {
+        this.nickname  = nickname;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void updateProfileImage(String imageUrl) {
+        this.profileImage = imageUrl;
+        this.updatedAt    = LocalDateTime.now();
+    }
+
+    public void withdraw() {
+        this.status    = "DELETED";
+        this.updatedAt = LocalDateTime.now();
+    }
 }

@@ -38,10 +38,14 @@ dependencies {
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
 
-    // QueryDSL (Jakarta 패키지 전환 대비 및 Gradle 7+ 호환을 위해 jakarta 기표 사용 가능)
-    // Spring Boot 2.7.x는 기본적으로 javax를 쓰지만 QueryDSL 5.0은 아래 설정이 가장 안정적입니다.
+    // QueryDSL
     implementation 'com.querydsl:querydsl-jpa:5.0.0'
-    annotationProcessor "com.querydsl:querydsl-apt:5.0.0:jpa" // :jpa 필수
+    annotationProcessor "com.querydsl:querydsl-apt:5.0.0:jpa"
+    // querydsl-apt:jpa 프로세서가 javax.persistence 클래스를 직접 참조하므로 명시적 추가 필요
+    annotationProcessor "javax.persistence:javax.persistence-api:2.2"
+
+    // Mail
+    implementation 'org.springframework.boot:spring-boot-starter-mail'
 
     // JWT
     implementation 'io.jsonwebtoken:jjwt-api:0.11.5'

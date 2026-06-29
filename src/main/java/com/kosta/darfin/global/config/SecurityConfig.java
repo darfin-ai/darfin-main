@@ -44,6 +44,8 @@ public class SecurityConfig {
                 .antMatchers(HttpMethod.GET,  "/api/v1/auth/callback/**").permitAll()
                 .antMatchers(HttpMethod.POST, "/api/v1/auth/reissue").permitAll()
                 .antMatchers(HttpMethod.POST, "/api/v1/auth/logout").permitAll()
+                .antMatchers(HttpMethod.POST, "/api/v1/auth/find-id").permitAll()
+                .antMatchers(HttpMethod.POST, "/api/v1/auth/reset-password").permitAll()
                 .anyRequest().authenticated()
             .and()
             .addFilterBefore(
