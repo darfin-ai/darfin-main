@@ -1,18 +1,23 @@
 package com.kosta.darfin.entity.common;
 
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import javax.persistence.*;
 import java.time.LocalDateTime;
 
-// RefreshTokens.java
 @Entity
 @Table(name = "refresh_tokens")
 @Getter
 @NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class RefreshTokens {
-    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -31,6 +36,7 @@ public class RefreshTokens {
     @Column(nullable = false)
     private LocalDateTime expiredAt;
 
+    @Builder.Default
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 }

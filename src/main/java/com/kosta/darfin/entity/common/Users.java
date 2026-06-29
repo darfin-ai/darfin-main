@@ -1,17 +1,21 @@
 package com.kosta.darfin.entity.common;
 
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import javax.persistence.*;
 import java.time.LocalDateTime;
 
-// Users.java
 @Entity
 @Table(name = "users")
 @Getter
 @NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class Users {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -31,24 +35,30 @@ public class Users {
     @Column(length = 255)
     private String profileImage;
 
+    @Builder.Default
     @Column(nullable = false, length = 20)
     private String provider = "LOCAL";
 
     @Column(length = 100)
     private String providerUserId;
 
+    @Builder.Default
     @Column(nullable = false, length = 20)
-    private String status = "PENDING";
+    private String status = "ACTIVE";
 
+    @Builder.Default
     @Column(nullable = false, length = 20)
     private String subscriptionLevel = "FREE";
 
+    @Builder.Default
     @Column(nullable = false)
     private Integer tokenBalance = 0;
 
+    @Builder.Default
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 
+    @Builder.Default
     @Column(nullable = false)
     private LocalDateTime updatedAt = LocalDateTime.now();
 }

@@ -1,11 +1,15 @@
 package com.kosta.darfin.entity.disclosure;
 
-import javax.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.EqualsAndHashCode;
+import lombok.NoArgsConstructor;
+
 import java.io.Serializable;
 
-// RiskScaleId.java (복합키 처리용 클래스)
+@EqualsAndHashCode // 핵심: 이 어노테이션 하나로 equals와 hashCode가 자동 생성됩니다.
+@NoArgsConstructor // 기본 생성자
+@AllArgsConstructor // 모든 필드를 포함하는 생성자
 public class RiskScaleId implements Serializable {
     private String riskScaleCode;
     private String riskLabel;
-    // equals()와 hashCode() 구현 필요
 }

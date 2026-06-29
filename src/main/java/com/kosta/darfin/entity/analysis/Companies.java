@@ -15,7 +15,7 @@ import java.time.LocalDateTime;
 
 public class Companies {
     @Id
-    @Column(length = 8)
+    @Column (name = "corp_code",length = 8)
     private String corpCode;
 
     @ManyToOne(fetch = FetchType.LAZY)
