@@ -45,6 +45,8 @@ public class SecurityConfig {
                 .accessDeniedHandler(accessDeniedHandler())
             .and()
             .authorizeRequests()
+                .antMatchers("/funds/**").permitAll()
+                .antMatchers("/ws/**").permitAll()
                 .antMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()
                 .antMatchers(HttpMethod.POST, "/api/v1/auth/signup").permitAll()
                 .antMatchers(HttpMethod.GET,  "/api/v1/auth/oauth2/authorize/**").permitAll()

@@ -46,7 +46,6 @@ dependencies {
     // Spring Boot 2.7.x는 기본적으로 javax를 쓰지만 QueryDSL 5.0은 아래 설정이 가장 안정적입니다.
     implementation 'com.querydsl:querydsl-jpa:5.0.0'
     annotationProcessor "com.querydsl:querydsl-apt:5.0.0:jpa" // :jpa 필수
-   // querydsl-apt 어노테이션 프로세서가 javax.persistence.Entity를 필요로 함
     annotationProcessor 'javax.persistence:javax.persistence-api:2.2'
 
     // Mail
