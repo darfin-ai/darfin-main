@@ -115,7 +115,8 @@ public class StockController {
 
         String stockName = stockInfoService.getCachedNameOrFallback(stockCode, raw.getStockName());
 
-        return new StockSummaryDTO(stockCode, stockName, currentPrice, pct, valueInEok);
+        String logoUrl = "https://file.alphasquare.co.kr/media/images/stock_logo/kr/" + stockCode + ".png";
+        return new StockSummaryDTO(stockCode, stockName, currentPrice, pct, valueInEok, logoUrl);
     }
 
 }

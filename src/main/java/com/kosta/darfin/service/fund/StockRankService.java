@@ -100,12 +100,14 @@ public class StockRankService {
 
         long valueInEok = item.getTradeValue() != null ? item.getTradeValue() / 1_000_000_000L : 0L;
 
+        String logoUrl = "https://file.alphasquare.co.kr/media/images/stock_logo/kr/" + item.getStockCode() + ".png";
         return new StockSummaryDTO(
                 item.getStockCode(),
                 item.getStockName(),
                 item.getCurrentPrice(),
                 pct,
-                valueInEok
+                valueInEok,
+                logoUrl
         );
     }
 }

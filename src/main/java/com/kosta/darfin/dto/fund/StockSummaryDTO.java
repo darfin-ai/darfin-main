@@ -16,4 +16,5 @@ public class StockSummaryDTO {
     private Long price;
     private BigDecimal pct;
     private Long value;
+    private String logoUrl;
 }

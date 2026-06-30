@@ -122,7 +122,8 @@ public class WatchlistBroadcastScheduler {
                 ? BigDecimal.valueOf(raw.getChangeRate())
                 : BigDecimal.ZERO;
         String name = stockInfoService.getCachedNameOrFallback(code, raw.getStockName());
+        String logoUrl = "https://file.alphasquare.co.kr/media/images/stock_logo/kr/" + code + ".png";
         return new StockSummaryDTO(code, name,
-                raw.getCurrentPrice() != null ? raw.getCurrentPrice() : 0L, pct, valueInEok);
+                raw.getCurrentPrice() != null ? raw.getCurrentPrice() : 0L, pct, valueInEok, logoUrl);
     }
 }
