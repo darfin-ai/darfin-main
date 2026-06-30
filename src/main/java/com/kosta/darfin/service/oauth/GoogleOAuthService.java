@@ -13,6 +13,9 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -31,6 +34,14 @@ public class GoogleOAuthService {
     private String redirectUri;
 
     private final RestTemplate restTemplate;
+
+    public String getAuthorizationUrl() {
+        return "https://accounts.google.com/o/oauth2/v2/auth"
+                + "?client_id="     + clientId
+                + "&redirect_uri="  + URLEncoder.encode(redirectUri, StandardCharsets.UTF_8)
+                + "&response_type=code"
+                + "&scope=email%20profile";
+    }
 
     /**
      * 인가 코드(code)를 구글 Access Token으로 교환한다.

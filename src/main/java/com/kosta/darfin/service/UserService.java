@@ -3,6 +3,7 @@ package com.kosta.darfin.service;
 import com.kosta.darfin.dto.user.ChangeNicknameRequest;
 import com.kosta.darfin.dto.user.ChangePasswordRequest;
 import com.kosta.darfin.dto.user.ChangeProfileImageRequest;
+import com.kosta.darfin.dto.user.UserProfileResponse;
 import com.kosta.darfin.dto.user.WithdrawRequest;
 import com.kosta.darfin.entity.common.Users;
 import com.kosta.darfin.repository.common.RefreshTokensRepository;
@@ -22,6 +23,22 @@ public class UserService {
     private final UsersRepository usersRepository;
     private final RefreshTokensRepository refreshTokensRepository;
     private final PasswordEncoder passwordEncoder;
+
+    // -------------------------------------------------------------------------
+    // 프로필 조회
+    // -------------------------------------------------------------------------
+
+    public UserProfileResponse getProfile(String email) {
+        Users user = findActiveUser(email);
+        return UserProfileResponse.builder()
+                .email(user.getEmail())
+                .nickname(user.getNickname())
+                .name(user.getName())
+                .profileImage(user.getProfileImage())
+                .provider(user.getProvider())
+                .subscriptionLevel(user.getSubscriptionLevel())
+                .build();
+    }
 
     // -------------------------------------------------------------------------
     // 닉네임 변경
@@ -94,8 +111,9 @@ public class UserService {
             }
         }
 
-        refreshTokensRepository.deleteByUser(user);
         user.withdraw();
+        usersRepository.saveAndFlush(user);      // flush로 즉시 UPDATE SQL 실행 (clearAutomatically 이전)
+        refreshTokensRepository.deleteByUser(user);
     }
 
     // -------------------------------------------------------------------------
@@ -111,8 +129,9 @@ public class UserService {
                     "일반 계정입니다. 비밀번호 입력 후 탈퇴해주세요.");
         }
 
-        refreshTokensRepository.deleteByUser(user);
         user.withdraw();
+        usersRepository.saveAndFlush(user);      // flush로 즉시 UPDATE SQL 실행 (clearAutomatically 이전)
+        refreshTokensRepository.deleteByUser(user);
     }
 
     // -------------------------------------------------------------------------

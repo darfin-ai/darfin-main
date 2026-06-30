@@ -13,6 +13,9 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -31,6 +34,14 @@ public class KakaoOAuthService {
     private String redirectUri;
 
     private final RestTemplate restTemplate;
+
+    public String getAuthorizationUrl() {
+        return "https://kauth.kakao.com/oauth/authorize"
+                + "?client_id="     + clientId
+                + "&redirect_uri="  + URLEncoder.encode(redirectUri, StandardCharsets.UTF_8)
+                + "&response_type=code"
+                + "&scope=profile_nickname,profile_image,account_email";
+    }
 
     /**
      * 인가 코드(code)를 카카오 Access Token으로 교환한다.

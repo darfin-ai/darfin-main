@@ -89,7 +89,7 @@ public class AuthService {
                         HttpStatus.UNAUTHORIZED, "이메일 또는 비밀번호가 올바르지 않습니다."));
 
         if ("DELETED".equals(user.getStatus())) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "이메일 또는 비밀번호가 올바르지 않습니다.");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "탈퇴한 계정입니다.");
         }
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
@@ -116,6 +116,10 @@ public class AuthService {
                     usersRepository.findByEmail(email)
                             .orElseGet(() -> createSocialUser(email, nickname, profileImageUrl, provider, providerUserId))
                 );
+
+        if ("DELETED".equals(user.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "탈퇴한 계정입니다.");
+        }
 
         return issueTokens(user, ipAddress, userAgent);
     }

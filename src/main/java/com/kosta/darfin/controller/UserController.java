@@ -3,6 +3,7 @@ package com.kosta.darfin.controller;
 import com.kosta.darfin.dto.user.ChangeNicknameRequest;
 import com.kosta.darfin.dto.user.ChangePasswordRequest;
 import com.kosta.darfin.dto.user.ChangeProfileImageRequest;
+import com.kosta.darfin.dto.user.UserProfileResponse;
 import com.kosta.darfin.dto.user.WithdrawRequest;
 import com.kosta.darfin.service.UserService;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +20,12 @@ import javax.validation.Valid;
 public class UserController {
 
     private final UserService userService;
+
+    @GetMapping
+    public ResponseEntity<UserProfileResponse> getProfile(
+            @AuthenticationPrincipal UserDetails userDetails) {
+        return ResponseEntity.ok(userService.getProfile(userDetails.getUsername()));
+    }
 
     @PatchMapping("/nickname")
     public ResponseEntity<Void> changeNickname(

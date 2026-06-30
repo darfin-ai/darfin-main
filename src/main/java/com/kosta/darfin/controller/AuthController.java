@@ -18,6 +18,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.validation.Valid;
@@ -58,49 +59,84 @@ public class AuthController {
     }
 
     // -------------------------------------------------------------------------
+    // 소셜 로그인 시작 (프론트 → 여기 → 카카오/구글 로그인 페이지)
+    // -------------------------------------------------------------------------
+
+    @GetMapping("/oauth2/authorize/kakao")
+    public ResponseEntity<Void> kakaoAuthorize() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setLocation(URI.create(kakaoOAuthService.getAuthorizationUrl()));
+        return ResponseEntity.status(HttpStatus.FOUND).headers(headers).build();
+    }
+
+    @GetMapping("/oauth2/authorize/google")
+    public ResponseEntity<Void> googleAuthorize() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setLocation(URI.create(googleOAuthService.getAuthorizationUrl()));
+        return ResponseEntity.status(HttpStatus.FOUND).headers(headers).build();
+    }
+
+    // -------------------------------------------------------------------------
     // 소셜 로그인 콜백
     // -------------------------------------------------------------------------
 
     @GetMapping("/callback/kakao")
     public ResponseEntity<Void> kakaoCallback(@RequestParam String code,
                                               HttpServletRequest httpRequest) {
-        String kakaoAccessToken = kakaoOAuthService.getAccessToken(code);
-        KakaoUserInfo userInfo  = kakaoOAuthService.getUserInfo(kakaoAccessToken);
+        try {
+            String kakaoAccessToken = kakaoOAuthService.getAccessToken(code);
+            KakaoUserInfo userInfo  = kakaoOAuthService.getUserInfo(kakaoAccessToken);
 
-        TokenResponse tokens = authService.socialLogin(
-                userInfo.getEmail(),
-                userInfo.getNickname(),
-                userInfo.getProfileImageUrl(),
-                "KAKAO",
-                String.valueOf(userInfo.getId()),
-                httpRequest.getRemoteAddr(),
-                httpRequest.getHeader("User-Agent")
-        );
-        return redirectToFrontend(tokens);
+            TokenResponse tokens = authService.socialLogin(
+                    userInfo.getEmail(),
+                    userInfo.getNickname(),
+                    userInfo.getProfileImageUrl(),
+                    "KAKAO",
+                    String.valueOf(userInfo.getId()),
+                    httpRequest.getRemoteAddr(),
+                    httpRequest.getHeader("User-Agent")
+            );
+            return redirectToFrontend(tokens);
+        } catch (ResponseStatusException e) {
+            return redirectToFrontendError(e.getReason());
+        }
     }
 
     @GetMapping("/callback/google")
     public ResponseEntity<Void> googleCallback(@RequestParam String code,
                                                HttpServletRequest httpRequest) {
-        String googleAccessToken = googleOAuthService.getAccessToken(code);
-        GoogleUserInfo userInfo  = googleOAuthService.getUserInfo(googleAccessToken);
+        try {
+            String googleAccessToken = googleOAuthService.getAccessToken(code);
+            GoogleUserInfo userInfo  = googleOAuthService.getUserInfo(googleAccessToken);
 
-        TokenResponse tokens = authService.socialLogin(
-                userInfo.getEmail(),
-                userInfo.getName(),
-                userInfo.getPicture(),
-                "GOOGLE",
-                userInfo.getSub(),
-                httpRequest.getRemoteAddr(),
-                httpRequest.getHeader("User-Agent")
-        );
-        return redirectToFrontend(tokens);
+            TokenResponse tokens = authService.socialLogin(
+                    userInfo.getEmail(),
+                    userInfo.getName(),
+                    userInfo.getPicture(),
+                    "GOOGLE",
+                    userInfo.getSub(),
+                    httpRequest.getRemoteAddr(),
+                    httpRequest.getHeader("User-Agent")
+            );
+            return redirectToFrontend(tokens);
+        } catch (ResponseStatusException e) {
+            return redirectToFrontendError(e.getReason());
+        }
     }
 
     private ResponseEntity<Void> redirectToFrontend(TokenResponse tokens) {
         String url = frontendRedirectUri
                 + "?accessToken="  + URLEncoder.encode(tokens.getAccessToken(),  StandardCharsets.UTF_8)
                 + "&refreshToken=" + URLEncoder.encode(tokens.getRefreshToken(), StandardCharsets.UTF_8);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setLocation(URI.create(url));
+        return ResponseEntity.status(HttpStatus.FOUND).headers(headers).build();
+    }
+
+    private ResponseEntity<Void> redirectToFrontendError(String errorMessage) {
+        String url = frontendRedirectUri
+                + "?error=" + URLEncoder.encode(errorMessage != null ? errorMessage : "오류가 발생했습니다.",
+                                                StandardCharsets.UTF_8);
         HttpHeaders headers = new HttpHeaders();
         headers.setLocation(URI.create(url));
         return ResponseEntity.status(HttpStatus.FOUND).headers(headers).build();

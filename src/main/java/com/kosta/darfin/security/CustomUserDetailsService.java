@@ -25,6 +25,10 @@ public class CustomUserDetailsService implements UserDetailsService {
         Users user = usersRepository.findByEmail(email)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found with email: " + email));
 
+        if ("DELETED".equals(user.getStatus())) {
+            throw new UsernameNotFoundException("탈퇴한 계정입니다: " + email);
+        }
+
         // subscriptionLevel → ROLE_FREE, ROLE_PRO 등 Spring Security 권한으로 매핑
         String role = "ROLE_" + user.getSubscriptionLevel();
 

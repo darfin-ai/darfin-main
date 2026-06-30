@@ -52,6 +52,8 @@ public class JwtTokenProvider {
         return Jwts.builder()
                 .setSubject(user.getEmail())
                 .claim("userId",            user.getId())
+                .claim("nickname",          user.getNickname())
+                .claim("provider",          user.getProvider())
                 .claim("subscriptionLevel", user.getSubscriptionLevel())
                 .setIssuedAt(now)
                 .setExpiration(expiry)
