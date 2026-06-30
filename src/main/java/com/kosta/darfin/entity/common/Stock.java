@@ -1,20 +1,20 @@
 package com.kosta.darfin.entity.common;
 
-import lombok.Getter;
-import lombok.NoArgsConstructor;
+import lombok.*;
 
 import javax.persistence.*;
 
-// Stock.java
 @Entity
 @Table(name = "stock")
 @Getter
 @NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class Stock {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, length = 20)
+    @Column(length = 20)
     private String marketType;
 
     @Column(nullable = false, length = 100)
