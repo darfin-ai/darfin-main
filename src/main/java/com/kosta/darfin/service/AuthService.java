@@ -20,6 +20,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
@@ -42,19 +43,30 @@ public class AuthService {
 
     @Transactional
     public void signup(SignupRequest request) {
-        if (usersRepository.existsByEmail(request.getEmail())) {
+        Optional<Users> existing = usersRepository.findByEmail(request.getEmail());
+
+        if (existing.isPresent()) {
+            Users user = existing.get();
+            if ("DELETED".equals(user.getStatus())) {
+                // 탈퇴 계정 재가입 → 기존 row 재활성화 (포인트·이력 보존)
+                user.reactivateAsLocal(
+                        passwordEncoder.encode(request.getPassword()),
+                        request.getName(),
+                        request.getPhone(),
+                        request.getNickname()
+                );
+                return;
+            }
             throw new ResponseStatusException(HttpStatus.CONFLICT, "이미 사용 중인 이메일입니다.");
         }
 
-        Users user = Users.builder()
+        usersRepository.save(Users.builder()
                 .email(request.getEmail())
                 .password(passwordEncoder.encode(request.getPassword()))
                 .name(request.getName())
                 .phone(request.getPhone())
                 .nickname(request.getNickname())
-                .build();
-
-        usersRepository.save(user);
+                .build());
     }
 
     // -------------------------------------------------------------------------

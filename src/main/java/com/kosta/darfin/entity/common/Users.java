@@ -35,7 +35,7 @@ public class Users {
     @Column(nullable = false, length = 50)
     private String nickname;
 
-    @Column(length = 255)
+    @Column(columnDefinition = "MEDIUMTEXT")
     private String profileImage;
 
     @Builder.Default
@@ -82,6 +82,15 @@ public class Users {
 
     public void withdraw() {
         this.status    = "DELETED";
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void reactivateAsLocal(String encodedPassword, String name, String phone, String nickname) {
+        this.status    = "ACTIVE";
+        this.password  = encodedPassword;
+        this.name      = name;
+        this.phone     = phone;
+        this.nickname  = nickname;
         this.updatedAt = LocalDateTime.now();
     }
 }
