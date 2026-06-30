@@ -31,6 +31,10 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-security'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
 
+    //websocket
+    implementation 'org.springframework.boot:spring-boot-starter-websocket'
+    implementation 'org.java-websocket:Java-WebSocket:1.5.7'
+
     // Database
     runtimeOnly 'org.mariadb.jdbc:mariadb-java-client'
 
@@ -38,11 +42,12 @@ dependencies {
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
 
-    // QueryDSL
+    // QueryDSL (Jakarta 패키지 전환 대비 및 Gradle 7+ 호환을 위해 jakarta 기표 사용 가능)
+    // Spring Boot 2.7.x는 기본적으로 javax를 쓰지만 QueryDSL 5.0은 아래 설정이 가장 안정적입니다.
     implementation 'com.querydsl:querydsl-jpa:5.0.0'
-    annotationProcessor "com.querydsl:querydsl-apt:5.0.0:jpa"
-    // querydsl-apt:jpa 프로세서가 javax.persistence 클래스를 직접 참조하므로 명시적 추가 필요
-    annotationProcessor "javax.persistence:javax.persistence-api:2.2"
+    annotationProcessor "com.querydsl:querydsl-apt:5.0.0:jpa" // :jpa 필수
+   // querydsl-apt 어노테이션 프로세서가 javax.persistence.Entity를 필요로 함
+    annotationProcessor 'javax.persistence:javax.persistence-api:2.2'
 
     // Mail
     implementation 'org.springframework.boot:spring-boot-starter-mail'
