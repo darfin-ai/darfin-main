@@ -13,18 +13,26 @@ import com.kosta.darfin.service.AuthService;
 import com.kosta.darfin.service.oauth.GoogleOAuthService;
 import com.kosta.darfin.service.oauth.KakaoOAuthService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.validation.Valid;
+import java.net.URI;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/auth")
 @RequiredArgsConstructor
 public class AuthController {
+
+    @Value("${oauth2.frontend-redirect-uri:http://localhost:5173/oauth/callback}")
+    private String frontendRedirectUri;
 
     private final AuthService authService;
     private final KakaoOAuthService kakaoOAuthService;
@@ -54,12 +62,12 @@ public class AuthController {
     // -------------------------------------------------------------------------
 
     @GetMapping("/callback/kakao")
-    public ResponseEntity<TokenResponse> kakaoCallback(@RequestParam String code,
-                                                       HttpServletRequest httpRequest) {
+    public ResponseEntity<Void> kakaoCallback(@RequestParam String code,
+                                              HttpServletRequest httpRequest) {
         String kakaoAccessToken = kakaoOAuthService.getAccessToken(code);
         KakaoUserInfo userInfo  = kakaoOAuthService.getUserInfo(kakaoAccessToken);
 
-        return ResponseEntity.ok(authService.socialLogin(
+        TokenResponse tokens = authService.socialLogin(
                 userInfo.getEmail(),
                 userInfo.getNickname(),
                 userInfo.getProfileImageUrl(),
@@ -67,16 +75,17 @@ public class AuthController {
                 String.valueOf(userInfo.getId()),
                 httpRequest.getRemoteAddr(),
                 httpRequest.getHeader("User-Agent")
-        ));
+        );
+        return redirectToFrontend(tokens);
     }
 
     @GetMapping("/callback/google")
-    public ResponseEntity<TokenResponse> googleCallback(@RequestParam String code,
-                                                        HttpServletRequest httpRequest) {
+    public ResponseEntity<Void> googleCallback(@RequestParam String code,
+                                               HttpServletRequest httpRequest) {
         String googleAccessToken = googleOAuthService.getAccessToken(code);
         GoogleUserInfo userInfo  = googleOAuthService.getUserInfo(googleAccessToken);
 
-        return ResponseEntity.ok(authService.socialLogin(
+        TokenResponse tokens = authService.socialLogin(
                 userInfo.getEmail(),
                 userInfo.getName(),
                 userInfo.getPicture(),
@@ -84,7 +93,17 @@ public class AuthController {
                 userInfo.getSub(),
                 httpRequest.getRemoteAddr(),
                 httpRequest.getHeader("User-Agent")
-        ));
+        );
+        return redirectToFrontend(tokens);
+    }
+
+    private ResponseEntity<Void> redirectToFrontend(TokenResponse tokens) {
+        String url = frontendRedirectUri
+                + "?accessToken="  + URLEncoder.encode(tokens.getAccessToken(),  StandardCharsets.UTF_8)
+                + "&refreshToken=" + URLEncoder.encode(tokens.getRefreshToken(), StandardCharsets.UTF_8);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setLocation(URI.create(url));
+        return ResponseEntity.status(HttpStatus.FOUND).headers(headers).build();
     }
 
     // -------------------------------------------------------------------------

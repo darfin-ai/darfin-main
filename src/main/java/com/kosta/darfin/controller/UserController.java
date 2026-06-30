@@ -58,4 +58,11 @@ public class UserController {
         userService.withdraw(userDetails.getUsername(), request != null ? request : new WithdrawRequest());
         return ResponseEntity.noContent().build();
     }
+
+    @DeleteMapping("/social")
+    public ResponseEntity<Void> disconnectSocial(
+            @AuthenticationPrincipal UserDetails userDetails) {
+        userService.disconnectSocial(userDetails.getUsername());
+        return ResponseEntity.noContent().build();
+    }
 }

@@ -99,6 +99,23 @@ public class UserService {
     }
 
     // -------------------------------------------------------------------------
+    // 소셜 연동 해제 (소셜 로그인 계정 탈퇴)
+    // -------------------------------------------------------------------------
+
+    @Transactional
+    public void disconnectSocial(String email) {
+        Users user = findActiveUser(email);
+
+        if ("LOCAL".equals(user.getProvider())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "일반 계정입니다. 비밀번호 입력 후 탈퇴해주세요.");
+        }
+
+        refreshTokensRepository.deleteByUser(user);
+        user.withdraw();
+    }
+
+    // -------------------------------------------------------------------------
     // Private helpers
     // -------------------------------------------------------------------------
 
