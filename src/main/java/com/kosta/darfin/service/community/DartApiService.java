@@ -1,4 +1,4 @@
-package com.kosta.darfin.service;
+package com.kosta.darfin.service.community;
 
 import com.kosta.darfin.entity.common.Stock;
 import com.kosta.darfin.repository.common.StockRepository;

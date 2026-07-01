@@ -2,6 +2,7 @@ package com.kosta.darfin.service.fund;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kosta.darfin.dto.fund.DailyPriceResponse;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -303,6 +304,62 @@ public class KisRankApiClient {
     }
 
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyyMMdd");
+
+    /**
+     * 일별 시세 조회 — 일자, 종가, 등락률, 거래량 (최신 순, 최대 100일).
+     * 같은 FHKST03010100 API를 쓰지만 prdy_ctrt(등락률)도 파싱하고 날짜를 YYYY-MM-DD로 포맷한다.
+     */
+    public List<DailyPriceResponse> fetchDailyPriceList(String stockCode) {
+        throttleKisCall();
+        String token = getRealToken();
+
+        LocalDate today = LocalDate.now();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("authorization", "Bearer " + token);
+        headers.set("appkey", realAppKey);
+        headers.set("appsecret", realAppSecret);
+        headers.set("tr_id", "FHKST03010100");
+
+        String url = KIS_REAL_BASE
+                + "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice"
+                + "?FID_COND_MRKT_DIV_CODE=J"
+                + "&FID_INPUT_ISCD=" + stockCode
+                + "&FID_INPUT_DATE_1=" + today.minusMonths(5).format(DATE_FMT)
+                + "&FID_INPUT_DATE_2=" + today.format(DATE_FMT)
+                + "&FID_PERIOD_DIV_CODE=D"
+                + "&FID_ORG_ADJ_PRC=0";
+
+        try {
+            ResponseEntity<String> response = exchangeGetWithRetry(url, new HttpEntity<>(headers));
+            JsonNode output2 = objectMapper.readTree(response.getBody()).path("output2");
+            List<DailyPriceResponse> result = new ArrayList<>();
+
+            if (output2.isArray()) {
+                for (JsonNode item : output2) {
+                    String raw = item.path("stck_bsop_date").asText();
+                    if (raw.isEmpty() || "null".equals(raw)) continue;
+
+                    String date = raw.length() == 8
+                            ? raw.substring(0, 4) + "-" + raw.substring(4, 6) + "-" + raw.substring(6, 8)
+                            : raw;
+
+                    result.add(DailyPriceResponse.builder()
+                            .date(date)
+                            .closePrice(item.path("stck_clpr").asLong(0))
+                            .changeRate(item.path("prdy_ctrt").asDouble(0))
+                            .volume(item.path("acml_vol").asLong(0))
+                            .build());
+                }
+            }
+            // KIS는 최신→과거 순으로 반환 — 일별 테이블에 그대로 사용
+            return result;
+
+        } catch (Exception e) {
+            log.warn("일별 시세 조회 실패 code={}: {}", stockCode, e.getMessage());
+            return Collections.emptyList();
+        }
+    }
 
     /**
      * 국내주식 일봉 조회 (TR_ID: FHKST03010100).

@@ -1,7 +1,7 @@
 package com.kosta.darfin.controller.community;
 
 import com.kosta.darfin.dto.community.*;
-import com.kosta.darfin.service.CommunityService;
+import com.kosta.darfin.service.community.CommunityService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;

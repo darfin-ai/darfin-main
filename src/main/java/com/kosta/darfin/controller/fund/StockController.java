@@ -1,5 +1,8 @@
 package com.kosta.darfin.controller.fund;
 
+import com.kosta.darfin.dto.fund.DailyPriceResponse;
+import com.kosta.darfin.dto.fund.ExecutionResponse;
+import com.kosta.darfin.dto.fund.OrderBookResponse;
 import com.kosta.darfin.dto.fund.StockSummaryDTO;
 import com.kosta.darfin.entity.fund.StockInfo;
 import com.kosta.darfin.entity.fund.StockPriceRealtime;
@@ -62,6 +65,24 @@ public class StockController {
     @GetMapping("/{stockCode}/candles/weekly")
     public List<KisRankApiClient.CandleData> getWeeklyCandles(@PathVariable String stockCode) {
         return kisRankApiClient.fetchWeeklyIntradayCandles(stockCode);
+    }
+
+    /** 일별 시세 — 일자, 종가, 등락률, 거래량 (최신 순, 최대 100일) */
+    @GetMapping("/{stockCode}/daily")
+    public List<DailyPriceResponse> getDailyPrices(@PathVariable String stockCode) {
+        return kisRankApiClient.fetchDailyPriceList(stockCode);
+    }
+
+    /** 호가 조회 — 매도/매수 각 5호가 + 현재가 */
+    @GetMapping("/{stockCode}/orderbook")
+    public OrderBookResponse getOrderBook(@PathVariable String stockCode) {
+        return kisApiClient.fetchOrderBook(stockCode);
+    }
+
+    /** 최근 체결 목록 조회 */
+    @GetMapping("/{stockCode}/executions")
+    public List<ExecutionResponse> getRecentExecutions(@PathVariable String stockCode) {
+        return kisApiClient.fetchRecentExecutions(stockCode);
     }
 
     @GetMapping("/{stockCode}/summary")

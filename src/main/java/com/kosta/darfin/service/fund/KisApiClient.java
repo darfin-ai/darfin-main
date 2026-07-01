@@ -15,7 +15,12 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import com.kosta.darfin.dto.fund.ExecutionResponse;
+import com.kosta.darfin.dto.fund.OrderBookResponse;
+
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -58,6 +63,25 @@ public class KisApiClient {
                 try { Thread.sleep(wait); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
             }
             lastCallTime = System.currentTimeMillis();
+        }
+    }
+
+    /**
+     * EGW00201(초당 거래건수 초과) 발생 시 1초 대기 후 1회 재시도.
+     * 모의투자 API는 rate limit 창이 짧아 짧은 대기만으로 해소된다.
+     */
+    private ResponseEntity<String> exchangeWithRetry(String url, HttpHeaders headers) {
+        HttpEntity<Void> req = new HttpEntity<>(headers);
+        try {
+            return restTemplate.exchange(url, HttpMethod.GET, req, String.class);
+        } catch (org.springframework.web.client.HttpServerErrorException e) {
+            if (e.getResponseBodyAsString().contains("EGW00201")) {
+                log.warn("EGW00201 — 1초 대기 후 재시도: {}", url);
+                try { Thread.sleep(1000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                throttle();
+                return restTemplate.exchange(url, HttpMethod.GET, req, String.class);
+            }
+            throw e;
         }
     }
 
@@ -106,15 +130,12 @@ public class KisApiClient {
         headers.set("appsecret", appSecret);
         headers.set("tr_id", "FHKST01010100");
 
-        HttpEntity<Void> request = new HttpEntity<>(headers);
-
         String url = kisBaseUrl
                 + "/uapi/domestic-stock/v1/quotations/inquire-price"
                 + "?FID_COND_MRKT_DIV_CODE=J"
                 + "&FID_INPUT_ISCD=" + stockCode;
 
-        ResponseEntity<String> response = restTemplate.exchange(
-                url, HttpMethod.GET, request, String.class);
+        ResponseEntity<String> response = exchangeWithRetry(url, headers);
 
         try {
             JsonNode o = objectMapper.readTree(response.getBody()).path("output");
@@ -137,6 +158,99 @@ public class KisApiClient {
 
         } catch (Exception e) {
             throw new RuntimeException("KIS 현재가 응답 파싱 실패: " + response.getBody(), e);
+        }
+    }
+
+    /** 호가 조회 (TR_ID: FHKST01010200) — 매도/매수 각 5호가 */
+    public OrderBookResponse fetchOrderBook(String stockCode) {
+        throttle();
+        String token = getToken();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("authorization", "Bearer " + token);
+        headers.set("appkey", appKey);
+        headers.set("appsecret", appSecret);
+        headers.set("tr_id", "FHKST01010200");
+
+        String url = kisBaseUrl
+                + "/uapi/domestic-stock/v1/quotations/inquire-asking-price-exp-ccn"
+                + "?FID_COND_MRKT_DIV_CODE=J"
+                + "&FID_INPUT_ISCD=" + stockCode;
+
+        ResponseEntity<String> response = exchangeWithRetry(url, headers);
+
+        try {
+            JsonNode root = objectMapper.readTree(response.getBody());
+            JsonNode o1 = root.path("output1");
+
+            long currentPrice = o1.path("stck_prpr").asLong(0);
+            double changeRate  = o1.path("prdy_ctrt").asDouble(0);
+
+            List<OrderBookResponse.OrderItem> asks = new ArrayList<>();
+            List<OrderBookResponse.OrderItem> bids = new ArrayList<>();
+
+            for (int i = 1; i <= 5; i++) {
+                asks.add(OrderBookResponse.OrderItem.builder()
+                        .price(o1.path("askp" + i).asLong(0))
+                        .quantity(o1.path("askp_rsqn" + i).asLong(0))
+                        .build());
+                bids.add(OrderBookResponse.OrderItem.builder()
+                        .price(o1.path("bidp" + i).asLong(0))
+                        .quantity(o1.path("bidp_rsqn" + i).asLong(0))
+                        .build());
+            }
+
+            return OrderBookResponse.builder()
+                    .currentPrice(currentPrice)
+                    .changeRate(changeRate)
+                    .asks(asks)
+                    .bids(bids)
+                    .build();
+
+        } catch (Exception e) {
+            throw new RuntimeException("KIS 호가 응답 파싱 실패: " + response.getBody(), e);
+        }
+    }
+
+    /** 최근 체결 목록 조회 (TR_ID: FHKST01010300) */
+    public List<ExecutionResponse> fetchRecentExecutions(String stockCode) {
+        throttle();
+        String token = getToken();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("authorization", "Bearer " + token);
+        headers.set("appkey", appKey);
+        headers.set("appsecret", appSecret);
+        headers.set("tr_id", "FHKST01010300");
+
+        String url = kisBaseUrl
+                + "/uapi/domestic-stock/v1/quotations/inquire-ccnl"
+                + "?FID_COND_MRKT_DIV_CODE=J"
+                + "&FID_INPUT_ISCD=" + stockCode;
+
+        ResponseEntity<String> response = exchangeWithRetry(url, headers);
+
+        try {
+            JsonNode output = objectMapper.readTree(response.getBody()).path("output");
+            List<ExecutionResponse> result = new ArrayList<>();
+
+            for (JsonNode item : output) {
+                String raw = item.path("stck_cntg_hour").asText("");  // HHMMSS
+                String time = raw.length() == 6
+                        ? raw.substring(0, 2) + ":" + raw.substring(2, 4) + ":" + raw.substring(4, 6)
+                        : raw;
+
+                result.add(ExecutionResponse.builder()
+                        .price(item.path("stck_prpr").asLong(0))
+                        .quantity(item.path("cntg_vol").asLong(0))
+                        .changeRate(item.path("prdy_ctrt").asDouble(0))
+                        .time(time)
+                        .build());
+            }
+            return result;
+
+        } catch (Exception e) {
+            throw new RuntimeException("KIS 체결 응답 파싱 실패: " + response.getBody(), e);
         }
     }
 

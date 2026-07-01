@@ -5,7 +5,7 @@ import com.kosta.darfin.dto.user.ChangePasswordRequest;
 import com.kosta.darfin.dto.user.ChangeProfileImageRequest;
 import com.kosta.darfin.dto.user.UserProfileResponse;
 import com.kosta.darfin.dto.user.WithdrawRequest;
-import com.kosta.darfin.service.UserService;
+import com.kosta.darfin.service.auth.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;

@@ -1,4 +1,4 @@
-package com.kosta.darfin.service;
+package com.kosta.darfin.service.auth;
 
 import com.kosta.darfin.dto.auth.FindIdRequest;
 import com.kosta.darfin.dto.auth.FindIdResponse;

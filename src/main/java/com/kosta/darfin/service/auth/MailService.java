@@ -1,4 +1,4 @@
-package com.kosta.darfin.service;
+package com.kosta.darfin.service.auth;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.mail.javamail.JavaMailSender;

@@ -1,7 +1,7 @@
 package com.kosta.darfin.controller.auth;
 
 import com.kosta.darfin.dto.community.StockSearchResponse;
-import com.kosta.darfin.service.DartApiService;
+import com.kosta.darfin.service.community.DartApiService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;

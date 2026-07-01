@@ -1,4 +1,4 @@
-package com.kosta.darfin.service;
+package com.kosta.darfin.service.community;
 
 import com.kosta.darfin.dto.community.*;
 import com.kosta.darfin.entity.common.Stock;

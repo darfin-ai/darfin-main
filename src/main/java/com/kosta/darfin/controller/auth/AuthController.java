@@ -9,7 +9,7 @@ import com.kosta.darfin.dto.auth.SignupRequest;
 import com.kosta.darfin.dto.auth.TokenResponse;
 import com.kosta.darfin.dto.oauth.GoogleUserInfo;
 import com.kosta.darfin.dto.oauth.KakaoUserInfo;
-import com.kosta.darfin.service.AuthService;
+import com.kosta.darfin.service.auth.AuthService;
 import com.kosta.darfin.service.oauth.GoogleOAuthService;
 import com.kosta.darfin.service.oauth.KakaoOAuthService;
 import lombok.RequiredArgsConstructor;
