@@ -1,4 +1,4 @@
-package com.kosta.darfin.controller;
+package com.kosta.darfin.controller.community;
 
 import com.kosta.darfin.dto.community.*;
 import com.kosta.darfin.service.CommunityService;
