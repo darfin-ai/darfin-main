@@ -22,7 +22,7 @@ password            VARCHAR(255) NULL,
 name                VARCHAR(50)  NULL,
 phone               VARCHAR(255) NOT NULL,
 nickname            VARCHAR(50)  NOT NULL,
-profile_image       TEXT         NULL,
+profile_image       MEDIUMTEXT   NULL,
 provider            VARCHAR(20)  NOT NULL DEFAULT 'LOCAL',
 provider_user_id    VARCHAR(100) NULL,
 status              VARCHAR(20)  NOT NULL DEFAULT 'ACTIVE',
@@ -37,7 +37,7 @@ UNIQUE KEY uq_provider_user (provider, provider_user_id)
 -- 주식 종목 기본 정보 (공시열람·기업분석 공용 기준 테이블)
 CREATE TABLE stock (
     id              BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    market_type     VARCHAR(20)  NULL,                      -- KOSPI, KOSDAQ 등 (DART 동기화 시 미제공 → null 허용)
+    market_type     VARCHAR(20)  NULL,                  -- KOSPI, KOSDAQ 등
     company_name    VARCHAR(100) NOT NULL,
     dart_corp_code  VARCHAR(20)  NOT NULL,
     stock_code      VARCHAR(20)  NULL,
@@ -225,17 +225,17 @@ CREATE INDEX idx_item_rcept_pos ON ai_analysis_item(rcept_no, char_start, char_e
 -- 4. 커뮤니티
 -- =====================================================================
 
--- 질문 게시글
+-- 게시글
 CREATE TABLE community_posts (
     id            BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
     author_id     BIGINT       NOT NULL,
-    stock_id      BIGINT       NULL,                           -- stock.id 참조 (종목 선택 시, DART corp code 기반)
+    stock_id      BIGINT       NULL,                           -- stock.id 참조(종목 토론방용)
     title         VARCHAR(255) NOT NULL,
     content       TEXT         NOT NULL,
     views         INT          NOT NULL DEFAULT 0,
-    is_resolved   TINYINT(1)   NOT NULL DEFAULT 0,             -- 0: 미해결, 1: 해결됨 (답변 채택 시 자동 변경)
+    is_resolved   TINYINT(1)   NOT NULL DEFAULT 0,
     reward_tokens INT          NOT NULL DEFAULT 0,
-    status        VARCHAR(20)  NOT NULL DEFAULT 'ACTIVE',      -- ACTIVE, DELETED (soft delete)
+    status        VARCHAR(20)  NOT NULL DEFAULT 'ACTIVE',
     created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (author_id) REFERENCES users(id),
@@ -487,66 +487,3 @@ CREATE TABLE llm_summaries (
     created_at   DATETIME     NOT NULL,
     FOREIGN KEY (rcept_no) REFERENCES filings(rcept_no) ON DELETE CASCADE
 );
-
-
--- =====================================================================
--- 마이그레이션 (기존 DB가 있는 경우에만 실행, 신규 설치는 무시)
--- =====================================================================
-
--- [1] stock.market_type: NOT NULL → NULL
-ALTER TABLE stock
-    MODIFY COLUMN market_type VARCHAR(20) NULL;
-
--- [2] community_posts: stock_code FK 제거 후 신규 컬럼 추가
---     stock_code FK 이름이 자동생성이므로 동적으로 찾아서 DROP
-DROP PROCEDURE IF EXISTS _migrate_community_posts;
-DELIMITER //
-CREATE PROCEDURE _migrate_community_posts()
-BEGIN
-    DECLARE v_fk VARCHAR(255) DEFAULT NULL;
-
-    -- stock_code 컬럼이 아직 존재하는지 확인
-    SELECT CONSTRAINT_NAME INTO v_fk
-    FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME   = 'community_posts'
-      AND COLUMN_NAME  = 'stock_code'
-      AND REFERENCED_TABLE_NAME = 'stock'
-    LIMIT 1;
-
-    IF v_fk IS NOT NULL THEN
-        SET @drop_fk = CONCAT('ALTER TABLE community_posts DROP FOREIGN KEY `', v_fk, '`');
-        PREPARE s FROM @drop_fk; EXECUTE s; DEALLOCATE PREPARE s;
-    END IF;
-
-    -- stock_code 컬럼 존재 여부 확인 후 DROP
-    IF EXISTS (
-        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME   = 'community_posts'
-          AND COLUMN_NAME  = 'stock_code'
-    ) THEN
-        ALTER TABLE community_posts DROP COLUMN stock_code;
-    END IF;
-
-    -- 신규 컬럼 추가 (없을 때만)
-    IF NOT EXISTS (
-        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME   = 'community_posts'
-          AND COLUMN_NAME  = 'stock_id'
-    ) THEN
-        ALTER TABLE community_posts
-            ADD COLUMN stock_id    BIGINT       NULL         AFTER author_id,
-            ADD COLUMN title       VARCHAR(255) NOT NULL DEFAULT '' AFTER stock_id,
-            ADD COLUMN views       INT          NOT NULL DEFAULT 0,
-            ADD COLUMN is_resolved TINYINT(1)   NOT NULL DEFAULT 0,
-            ADD COLUMN updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            MODIFY COLUMN status   VARCHAR(20)  NOT NULL DEFAULT 'ACTIVE',
-            ADD CONSTRAINT fk_community_posts_stock FOREIGN KEY (stock_id) REFERENCES stock(id);
-    END IF;
-END //
-DELIMITER ;
-
-CALL _migrate_community_posts();
-DROP PROCEDURE IF EXISTS _migrate_community_posts;
