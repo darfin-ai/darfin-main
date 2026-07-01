@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDate;
@@ -47,6 +48,10 @@ public class KisRankApiClient {
 
     private static final String KIS_REAL_BASE = "https://openapi.koreainvestment.com:9443";
     private static final String TR_ID_VOLUME_RANK = "FHPST01710000";
+    private static final String TR_ID_INDEX_PRICE = "FHPUP02100000";
+    private static final String TR_ID_INDEX_DAILY_CHART = "FHPUP02120000";
+    private static final String TR_ID_INDEX_INTRADAY = "FHKUP03500200";
+    private static final String TR_ID_OVERSEAS_DAILY_CHART = "FHKST03030100";
 
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -56,7 +61,7 @@ public class KisRankApiClient {
 
     // KIS 실전 API 전역 호출 간격 — 캔들/순위 등 모든 REST 호출이 이 게이트를 통과한다.
     // 초당 20건 제한이지만 다른 스레드와 공유하므로 보수적으로 600ms 고정
-    private static final long MIN_CALL_INTERVAL_MS = 600;
+    private static final long MIN_CALL_INTERVAL_MS = 900;
     private final AtomicLong lastKisCallMs = new AtomicLong(0);
 
     /** 실전 도메인 토큰 발급 — 모의투자 토큰과 완전히 별개로 캐싱 (23시간) */
@@ -121,7 +126,7 @@ public class KisRankApiClient {
                 + "&FID_INPUT_PRICE_2="
                 + "&FID_VOL_CNT=";
 
-        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, request, String.class);
+        ResponseEntity<String> response = exchangeGetWithRetry(url, request);
 
         try {
             JsonNode output = objectMapper.readTree(response.getBody()).path("output");
@@ -143,6 +148,157 @@ public class KisRankApiClient {
 
         } catch (Exception e) {
             throw new RuntimeException("KIS 순위 응답 파싱 실패: " + response.getBody(), e);
+        }
+    }
+
+    /** 국내업종 현재지수 조회. KOSPI=0001, KOSDAQ=1001 */
+    public MarketIndexItem fetchMarketIndex(String indexCode, String indexName) {
+        throttleKisCall();
+        String token = getRealToken();
+
+        HttpHeaders headers = realApiHeaders(token, TR_ID_INDEX_PRICE);
+        HttpEntity<Void> request = new HttpEntity<>(headers);
+
+        String url = KIS_REAL_BASE
+                + "/uapi/domestic-stock/v1/quotations/inquire-index-price"
+                + "?FID_COND_MRKT_DIV_CODE=U"
+                + "&FID_INPUT_ISCD=" + indexCode;
+
+        ResponseEntity<String> response = exchangeGetWithRetry(url, request);
+
+        try {
+            JsonNode output = objectMapper.readTree(response.getBody()).path("output");
+            return MarketIndexItem.builder()
+                    .code(indexCode)
+                    .name(indexName)
+                    .price(readDouble(output, "bstp_nmix_prpr", "stck_prpr", "ovrs_nmix_prpr"))
+                    .change(readDouble(output, "bstp_nmix_prdy_vrss", "prdy_vrss"))
+                    .changeRate(readDouble(output, "bstp_nmix_prdy_ctrt", "prdy_ctrt"))
+                    .volume(readLong(output, "acml_vol", "acml_vol_lwpr"))
+                    .tradeValue(readLong(output, "acml_tr_pbmn", "acml_tr_pbmn_lwpr"))
+                    .build();
+        } catch (Exception e) {
+            throw new RuntimeException("KIS 지수 응답 파싱 실패: " + response.getBody(), e);
+        }
+    }
+
+    /**
+     * USD/KRW 환율 조회.
+     * "해외주식 현재가 시세"(HHDFS00000300)는 EXCD가 NAS/NYS 등 3자리 거래소 코드 전용이라
+     * 환율(FX_IDC)엔 애초에 쓸 수 없다(WRONG VALUE SIZE [EXCD] 에러) — 대신 지수/환율 겸용
+     * 기간별시세(FHKST03030100, FID_COND_MRKT_DIV_CODE=X, FID_INPUT_ISCD=FX@KRW)의
+     * output1(당일 요약)에서 현재가를 읽는다. 실계좌로 검증한 필드명.
+     */
+    public ExchangeRateItem fetchUsdKrwExchangeRate() {
+        throttleKisCall();
+        String token = getRealToken();
+
+        HttpHeaders headers = realApiHeaders(token, TR_ID_OVERSEAS_DAILY_CHART);
+        HttpEntity<Void> request = new HttpEntity<>(headers);
+
+        LocalDate today = LocalDate.now();
+        String url = KIS_REAL_BASE
+                + "/uapi/overseas-price/v1/quotations/inquire-daily-chartprice"
+                + "?FID_COND_MRKT_DIV_CODE=X"
+                + "&FID_INPUT_ISCD=FX@KRW"
+                + "&FID_INPUT_DATE_1=" + today.minusDays(7).format(DATE_FMT)
+                + "&FID_INPUT_DATE_2=" + today.format(DATE_FMT)
+                + "&FID_PERIOD_DIV_CODE=D";
+
+        ResponseEntity<String> response = exchangeGetWithRetry(url, request);
+
+        try {
+            JsonNode output1 = objectMapper.readTree(response.getBody()).path("output1");
+
+            double rate = readDouble(output1, "ovrs_nmix_prpr");
+            double change = readDouble(output1, "ovrs_nmix_prdy_vrss");
+            double changeRate = readDouble(output1, "prdy_ctrt");
+
+            if (rate == 0) {
+                log.warn("KIS 환율 응답 필드 확인 필요: {}", response.getBody());
+            }
+
+            return ExchangeRateItem.builder()
+                    .currency("USD/KRW")
+                    .name("달러환율")
+                    .rate(rate)
+                    .change(change)
+                    .changeRate(changeRate)
+                    .build();
+        } catch (Exception e) {
+            throw new RuntimeException("KIS 환율 응답 파싱 실패: " + response.getBody(), e);
+        }
+    }
+
+    private HttpHeaders realApiHeaders(String token, String trId) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("authorization", "Bearer " + token);
+        headers.set("appkey", realAppKey);
+        headers.set("appsecret", realAppSecret);
+        headers.set("tr_id", trId);
+        return headers;
+    }
+
+    private ResponseEntity<String> exchangeGetWithRetry(String url, HttpEntity<Void> request) {
+        int attempts = 0;
+        while (true) {
+            try {
+                return restTemplate.exchange(url, HttpMethod.GET, request, String.class);
+            } catch (HttpStatusCodeException e) {
+                attempts++;
+                if (attempts >= 3 || !e.getResponseBodyAsString().contains("EGW00201")) {
+                    throw e;
+                }
+                log.warn("KIS rate limit(EGW00201) 발생 — {}번째 재시도 대기", attempts);
+                sleepQuietly(1200L * attempts);
+                throttleKisCall();
+            }
+        }
+    }
+
+    private String readText(JsonNode node, String... fieldNames) {
+        for (String fieldName : fieldNames) {
+            JsonNode value = node.path(fieldName);
+            if (!value.isMissingNode() && !value.asText("").isEmpty()) {
+                return value.asText();
+            }
+        }
+        return "";
+    }
+
+    private double readDouble(JsonNode node, String... fieldNames) {
+        for (String fieldName : fieldNames) {
+            JsonNode value = node.path(fieldName);
+            if (!value.isMissingNode() && !value.asText("").isEmpty()) {
+                return parseDouble(value.asText());
+            }
+        }
+        return 0;
+    }
+
+    private long readLong(JsonNode node, String... fieldNames) {
+        for (String fieldName : fieldNames) {
+            JsonNode value = node.path(fieldName);
+            if (!value.isMissingNode() && !value.asText("").isEmpty()) {
+                return parseLong(value.asText());
+            }
+        }
+        return 0;
+    }
+
+    private double parseDouble(String value) {
+        try {
+            return Double.parseDouble(value.replace(",", "").trim());
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private long parseLong(String value) {
+        try {
+            return Long.parseLong(value.replace(",", "").trim());
+        } catch (Exception e) {
+            return 0;
         }
     }
 
@@ -220,6 +376,173 @@ public class KisRankApiClient {
 
         } catch (Exception e) {
             log.warn("일봉 조회 실패 code={} from={} to={}: {}", stockCode, from, to, e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    /**
+     * 국내업종 일자별 지수 조회 (KOSPI=0001, KOSDAQ=1001). TR_ID: FHPUP02120000.
+     * 종목 일봉과 동일하게 2회 호출로 최대 200개(~10개월치) 취합, 오래된 순 정렬.
+     */
+    public List<IndexCandleData> fetchIndexDailyCandles(String indexCode) {
+        LocalDate today = LocalDate.now();
+
+        List<IndexCandleData> recent = fetchIndexCandleBatch(indexCode,
+                today.minusMonths(5).format(DATE_FMT), today.format(DATE_FMT));
+        sleepQuietly(300);
+        List<IndexCandleData> older = fetchIndexCandleBatch(indexCode,
+                today.minusMonths(10).format(DATE_FMT), today.minusMonths(5).minusDays(1).format(DATE_FMT));
+
+        List<IndexCandleData> all = new ArrayList<>(older.size() + recent.size());
+        all.addAll(older);
+        all.addAll(recent);
+        return all;
+    }
+
+    private List<IndexCandleData> fetchIndexCandleBatch(String indexCode, String from, String to) {
+        throttleKisCall();
+        String token = getRealToken();
+        HttpHeaders headers = realApiHeaders(token, TR_ID_INDEX_DAILY_CHART);
+        HttpEntity<Void> request = new HttpEntity<>(headers);
+
+        String url = KIS_REAL_BASE
+                + "/uapi/domestic-stock/v1/quotations/inquire-daily-indexchartprice"
+                + "?FID_COND_MRKT_DIV_CODE=U"
+                + "&FID_INPUT_ISCD=" + indexCode
+                + "&FID_INPUT_DATE_1=" + from
+                + "&FID_INPUT_DATE_2=" + to
+                + "&FID_PERIOD_DIV_CODE=D";
+
+        try {
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, request, String.class);
+            JsonNode output2 = objectMapper.readTree(response.getBody()).path("output2");
+            List<IndexCandleData> result = new ArrayList<>();
+            if (output2.isArray()) {
+                for (JsonNode item : output2) {
+                    String date = item.path("stck_bsop_date").asText();
+                    if (date.isEmpty() || date.equals("null")) continue;
+                    result.add(new IndexCandleData(
+                            date,
+                            readDouble(item, "bstp_nmix_oprc"),
+                            readDouble(item, "bstp_nmix_hgpr"),
+                            readDouble(item, "bstp_nmix_lwpr"),
+                            readDouble(item, "bstp_nmix_prpr"),
+                            item.path("acml_vol").asLong(0)
+                    ));
+                }
+            }
+            Collections.reverse(result); // KIS는 최신→과거 순, 역정렬
+            return result;
+        } catch (Exception e) {
+            log.warn("지수 일봉 조회 실패 code={} from={} to={}: {}", indexCode, from, to, e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    /**
+     * 지수 당일 분봉 조회 (KOSPI=0001, KOSDAQ=1001). TR_ID: FHKUP03500200.
+     * 1분 간격, 오늘 장중 데이터만(FID_PW_DATA_INCU_YN=N) — 미니 차트용 "오늘 흐름" 표시에 사용.
+     * 환율(FX)은 같은 계열 API(FHKST03030200)로 시도해도 이 계정 권한에서는 분봉이 비어 와서 지원하지 않는다.
+     */
+    public List<IndexCandleData> fetchIndexIntradayCandles(String indexCode) {
+        throttleKisCall();
+        String token = getRealToken();
+        HttpHeaders headers = realApiHeaders(token, TR_ID_INDEX_INTRADAY);
+        HttpEntity<Void> request = new HttpEntity<>(headers);
+
+        String url = KIS_REAL_BASE
+                + "/uapi/domestic-stock/v1/quotations/inquire-time-indexchartprice"
+                + "?FID_COND_MRKT_DIV_CODE=U"
+                + "&FID_ETC_CLS_CODE=0"
+                + "&FID_INPUT_ISCD=" + indexCode
+                + "&FID_INPUT_HOUR_1=60"
+                + "&FID_PW_DATA_INCU_YN=N";
+
+        try {
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, request, String.class);
+            JsonNode output2 = objectMapper.readTree(response.getBody()).path("output2");
+            List<IndexCandleData> result = new ArrayList<>();
+            if (output2.isArray()) {
+                for (JsonNode item : output2) {
+                    String time = item.path("stck_cntg_hour").asText();
+                    if (time.isEmpty() || time.equals("null")) continue;
+                    result.add(new IndexCandleData(
+                            time,
+                            readDouble(item, "bstp_nmix_oprc"),
+                            readDouble(item, "bstp_nmix_hgpr"),
+                            readDouble(item, "bstp_nmix_lwpr"),
+                            readDouble(item, "bstp_nmix_prpr"),
+                            item.path("cntg_vol").asLong(0)
+                    ));
+                }
+            }
+            Collections.reverse(result); // KIS는 최신→과거 순, 역정렬
+            return result;
+        } catch (Exception e) {
+            log.warn("지수 분봉 조회 실패 code={}: {}", indexCode, e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    /**
+     * USD/KRW 환율 일자별 시세 조회. TR_ID: FHKST03030100 (해외지수/환율 기간별시세 공용 엔드포인트).
+     * FID_COND_MRKT_DIV_CODE=X(환율), FID_INPUT_ISCD=USDKRW.
+     * 응답 필드명은 계정/권한별로 달라질 수 있어(fetchUsdKrwExchangeRate와 동일 이슈) 후보 필드를 순서대로 읽는다.
+     */
+    public List<IndexCandleData> fetchExchangeRateDailyCandles() {
+        LocalDate today = LocalDate.now();
+
+        List<IndexCandleData> recent = fetchExchangeCandleBatch(
+                today.minusMonths(5).format(DATE_FMT), today.format(DATE_FMT));
+        sleepQuietly(300);
+        List<IndexCandleData> older = fetchExchangeCandleBatch(
+                today.minusMonths(10).format(DATE_FMT), today.minusMonths(5).minusDays(1).format(DATE_FMT));
+
+        List<IndexCandleData> all = new ArrayList<>(older.size() + recent.size());
+        all.addAll(older);
+        all.addAll(recent);
+        return all;
+    }
+
+    private List<IndexCandleData> fetchExchangeCandleBatch(String from, String to) {
+        throttleKisCall();
+        String token = getRealToken();
+        HttpHeaders headers = realApiHeaders(token, TR_ID_OVERSEAS_DAILY_CHART);
+        HttpEntity<Void> request = new HttpEntity<>(headers);
+
+        String url = KIS_REAL_BASE
+                + "/uapi/overseas-price/v1/quotations/inquire-daily-chartprice"
+                + "?FID_COND_MRKT_DIV_CODE=X"
+                + "&FID_INPUT_ISCD=FX@KRW"
+                + "&FID_INPUT_DATE_1=" + from
+                + "&FID_INPUT_DATE_2=" + to
+                + "&FID_PERIOD_DIV_CODE=D";
+
+        try {
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, request, String.class);
+            JsonNode output2 = objectMapper.readTree(response.getBody()).path("output2");
+            List<IndexCandleData> result = new ArrayList<>();
+            if (output2.isArray()) {
+                for (JsonNode item : output2) {
+                    String date = readText(item, "stck_bsop_date", "xymd", "zdiv");
+                    if (date.isEmpty() || date.equals("null")) continue;
+                    result.add(new IndexCandleData(
+                            date,
+                            readDouble(item, "ovrs_nmix_oprc", "open"),
+                            readDouble(item, "ovrs_nmix_hgpr", "high"),
+                            readDouble(item, "ovrs_nmix_lwpr", "low"),
+                            readDouble(item, "ovrs_nmix_prpr", "clos", "last"),
+                            readLong(item, "acml_vol", "tvol", "gvol")
+                    ));
+                }
+            }
+            if (result.isEmpty()) {
+                log.warn("환율 일봉 응답 필드 확인 필요: {}", response.getBody());
+            }
+            Collections.reverse(result); // KIS는 최신→과거 순, 역정렬
+            return result;
+        } catch (Exception e) {
+            log.warn("환율 일봉 조회 실패 from={} to={}: {}", from, to, e.getMessage());
             return Collections.emptyList();
         }
     }
@@ -469,5 +792,38 @@ public class KisRankApiClient {
         private long low;
         private long close;
         private long volume;
+    }
+
+    @Getter
+    @AllArgsConstructor
+    public static class IndexCandleData {
+        private String date;
+        private double open;
+        private double high;
+        private double low;
+        private double close;
+        private long volume;
+    }
+
+    @Getter
+    @Builder
+    public static class MarketIndexItem {
+        private String code;
+        private String name;
+        private Double price;
+        private Double change;
+        private Double changeRate;
+        private Long volume;
+        private Long tradeValue;
+    }
+
+    @Getter
+    @Builder
+    public static class ExchangeRateItem {
+        private String currency;
+        private String name;
+        private Double rate;
+        private Double change;
+        private Double changeRate;
     }
 }

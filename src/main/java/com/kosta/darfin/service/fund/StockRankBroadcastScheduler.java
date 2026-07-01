@@ -1,6 +1,7 @@
 package com.kosta.darfin.service.fund;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kosta.darfin.dto.fund.MarketOverviewDTO;
 import com.kosta.darfin.dto.fund.StockSummaryDTO;
 import com.kosta.darfin.websocket.StockWebSocketHandler;
 import lombok.extern.slf4j.Slf4j;
@@ -21,6 +22,7 @@ import java.util.stream.Stream;
 public class StockRankBroadcastScheduler {
 
     private final StockRankService stockRankService;
+    private final MarketOverviewService marketOverviewService;
     private final StockWebSocketHandler stockWebSocketHandler;
     private final KisRealtimeClient kisRealtimeClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -32,9 +34,11 @@ public class StockRankBroadcastScheduler {
     private volatile Set<String> lastRankCodes = new java.util.HashSet<>();
 
     public StockRankBroadcastScheduler(StockRankService stockRankService,
+                                       MarketOverviewService marketOverviewService,
                                        StockWebSocketHandler stockWebSocketHandler,
                                        KisRealtimeClient kisRealtimeClient) {
         this.stockRankService = stockRankService;
+        this.marketOverviewService = marketOverviewService;
         this.stockWebSocketHandler = stockWebSocketHandler;
         this.kisRealtimeClient = kisRealtimeClient;
     }
@@ -98,6 +102,7 @@ public class StockRankBroadcastScheduler {
 
         Map<String, Object> payload = new HashMap<>();
         payload.put("type", "RANK");
+        payload.put("marketOverview", getMarketOverviewOrNull());
         payload.put("tradeValue", ranks.getTradeValue());
         payload.put("volume", ranks.getVolume());
         payload.put("topGainers", ranks.getTopGainers());
@@ -105,5 +110,14 @@ public class StockRankBroadcastScheduler {
         payload.put("timestamp", System.currentTimeMillis());
 
         return objectMapper.writeValueAsString(payload);
+    }
+
+    private MarketOverviewDTO getMarketOverviewOrNull() {
+        try {
+            return marketOverviewService.getMarketOverview();
+        } catch (Exception e) {
+            log.warn("시장 요약 조회 실패 — 랭크 브로드캐스트는 계속 진행: {}", e.getMessage());
+            return null;
+        }
     }
 }
