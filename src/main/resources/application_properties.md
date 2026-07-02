@@ -1,0 +1,1 @@
+//application.properties is a configuration file used in Spring Boot applications to define various settings and properties for the application. It allows developers to customize the behavior of the application by specifying key-value pairs.
