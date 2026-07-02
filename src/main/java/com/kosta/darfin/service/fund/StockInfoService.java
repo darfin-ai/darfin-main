@@ -50,6 +50,21 @@ public class StockInfoService {
                 || info.getUpdatedAt().isBefore(LocalDateTime.now().minusDays(CACHE_TTL_DAYS));
     }
 
+    /**
+     * 이미 가진 StockBasicInfo로 KIS 재호출 없이 stock_info를 적재.
+     * /info 엔드포인트처럼 fetchStockBasicInfo를 먼저 호출한 뒤 결과를 재사용할 때 사용.
+     */
+    @org.springframework.transaction.annotation.Transactional
+    public void saveIfAbsent(String stockCode, KisApiClient.StockBasicInfo fetched) {
+        if (stockInfoRepository.existsById(stockCode)) return;
+        String stockName = getCachedNameOrFallback(stockCode, fetched.getStockName());
+        stockInfoRepository.insertStockInfo(
+                stockCode, stockName, fetched.getMarket(), fetched.getSector(),
+                fetched.getMarketCap(), fetched.getPer(), fetched.getPbr(), LocalDateTime.now()
+        );
+        log.info("stock_info lazy 적재: {} ({})", stockCode, stockName);
+    }
+
     private StockInfo fetchFromKisAndSave(String stockCode, boolean alreadyExists) {
         log.info("stock_info 캐시 없음/만료 — KIS API 호출: stockCode={}", stockCode);
 

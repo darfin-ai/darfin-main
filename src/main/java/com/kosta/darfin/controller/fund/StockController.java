@@ -3,6 +3,7 @@ package com.kosta.darfin.controller.fund;
 import com.kosta.darfin.dto.fund.DailyPriceResponse;
 import com.kosta.darfin.dto.fund.ExecutionResponse;
 import com.kosta.darfin.dto.fund.OrderBookResponse;
+import com.kosta.darfin.dto.fund.StockInfoResponse;
 import com.kosta.darfin.dto.fund.StockSummaryDTO;
 import com.kosta.darfin.entity.fund.StockInfo;
 import com.kosta.darfin.entity.fund.StockPriceRealtime;
@@ -13,7 +14,9 @@ import com.kosta.darfin.service.fund.StockPriceService;
 import com.kosta.darfin.service.fund.WatchlistBroadcastScheduler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.util.Arrays;
@@ -83,6 +86,34 @@ public class StockController {
     @GetMapping("/{stockCode}/executions")
     public List<ExecutionResponse> getRecentExecutions(@PathVariable String stockCode) {
         return kisApiClient.fetchRecentExecutions(stockCode);
+    }
+
+    /** 종목 개요 정보 — 시가총액, 52주 최고/최저, PER, 업종 */
+    @GetMapping("/{stockCode}/info")
+    public StockInfoResponse getStockInfoDetail(@PathVariable String stockCode) {
+        KisApiClient.StockBasicInfo raw;
+        try {
+            raw = kisApiClient.fetchStockBasicInfo(stockCode);
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "종목을 찾을 수 없습니다.");
+        }
+        // KIS가 존재하지 않는 종목에 대해 현재가 0을 반환하는 경우 404 처리
+        if (raw.getCurrentPrice() == null || raw.getCurrentPrice() == 0L) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "종목을 찾을 수 없습니다.");
+        }
+        // stock_info DB에 없으면 lazy 적재 (모의투자 FK 참조 등을 위해)
+        try {
+            stockInfoService.saveIfAbsent(stockCode, raw);
+        } catch (Exception e) {
+            log.warn("stock_info lazy 적재 실패 code={}: {}", stockCode, e.getMessage());
+        }
+        return StockInfoResponse.builder()
+                .marketCap(raw.getMarketCap())
+                .week52High(raw.getHigh52w())
+                .week52Low(raw.getLow52w())
+                .per(raw.getPer() != null && raw.getPer() != 0.0 ? raw.getPer() : null)
+                .sector(raw.getSector() != null && !raw.getSector().isBlank() ? raw.getSector() : null)
+                .build();
     }
 
     @GetMapping("/{stockCode}/summary")

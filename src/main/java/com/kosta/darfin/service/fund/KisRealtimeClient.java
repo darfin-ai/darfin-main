@@ -372,14 +372,18 @@ public class KisRealtimeClient {
         }
     }
 
-    /** 상세 페이지 이탈 시 호출 — H0STASP0 즉시 해제, H0STCNT0는 다음 sync에서 정리 */
+    /** 상세 페이지 이탈 시 호출 — H0STCNT0 + H0STASP0 즉시 해제 */
     public void removeDetailCode(String stockCode) {
         detailCodes.remove(stockCode);
-        if (isConnected() && aspSubscribedCodes.remove(stockCode)) {
-            unsubscribe("H0STASP0", stockCode);
-            log.info("호가 구독 해제: {}", stockCode);
+        if (isConnected()) {
+            if (aspSubscribedCodes.remove(stockCode)) {
+                unsubscribe("H0STASP0", stockCode);
+            }
+            if (subscribedCodes.remove(stockCode)) {
+                unsubscribe("H0STCNT0", stockCode);
+            }
         }
-        log.info("상세 구독 제거: {}", stockCode);
+        log.info("상세 구독 해제 (체결+호가): {}", stockCode);
     }
 
     /**

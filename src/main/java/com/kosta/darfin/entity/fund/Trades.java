@@ -28,10 +28,10 @@ public class Trades {
     private StockInfo stockInfo;
 
     @Column(length = 10)
-    private String type;
+    private String type;       // BUY, SELL
 
     @Column(length = 10)
-    private String status;
+    private String status;     // COMPLETE
 
     @Column(length = 50)
     private String kisOrderNo;

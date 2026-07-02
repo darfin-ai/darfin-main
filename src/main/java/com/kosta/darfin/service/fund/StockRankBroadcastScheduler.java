@@ -2,7 +2,6 @@ package com.kosta.darfin.service.fund;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kosta.darfin.dto.fund.MarketOverviewDTO;
-import com.kosta.darfin.dto.fund.StockSummaryDTO;
 import com.kosta.darfin.websocket.StockWebSocketHandler;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -13,9 +12,6 @@ import javax.annotation.PostConstruct;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 @Slf4j
 @Service
@@ -24,27 +20,22 @@ public class StockRankBroadcastScheduler {
     private final StockRankService stockRankService;
     private final MarketOverviewService marketOverviewService;
     private final StockWebSocketHandler stockWebSocketHandler;
-    private final KisRealtimeClient kisRealtimeClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     // 마지막으로 브로드캐스트한 payload 캐시 (신규 접속자에게 즉시 전송용)
     private volatile String lastPayload;
 
-    // 마지막 랭크 코드 목록 (구독 동기화 전용 — broadcast와 분리)
-    private volatile Set<String> lastRankCodes = new java.util.HashSet<>();
-
     // 투자자 동향·업종 순위 캐시 — 60초마다 갱신, RANK 브로드캐스트에 포함 (KIS rate limit 고려)
     private volatile List<Map<String, Object>> cachedInvestorSentiment;
     private volatile List<Map<String, Object>> cachedIndustries;
 
+
     public StockRankBroadcastScheduler(StockRankService stockRankService,
                                        MarketOverviewService marketOverviewService,
-                                       StockWebSocketHandler stockWebSocketHandler,
-                                       KisRealtimeClient kisRealtimeClient) {
+                                       StockWebSocketHandler stockWebSocketHandler) {
         this.stockRankService = stockRankService;
         this.marketOverviewService = marketOverviewService;
         this.stockWebSocketHandler = stockWebSocketHandler;
-        this.kisRealtimeClient = kisRealtimeClient;
     }
 
     @PostConstruct
@@ -94,15 +85,8 @@ public class StockRankBroadcastScheduler {
         }
     }
 
-    /**
-     * 30초마다 KIS WebSocket 구독 목록 동기화.
-     * broadcast와 분리해서 REST 호출과 WebSocket 구독이 겹치지 않게 한다.
-     */
-    @Scheduled(fixedDelay = 30000)
-    public void syncKisSubscriptions() {
-        if (lastRankCodes.isEmpty()) return;
-        kisRealtimeClient.syncSubscriptions(lastRankCodes);
-    }
+    // rank 코드 대량 구독 제거 — KIS WebSocket 구독 한도(OPSP0008) 방지.
+    // 사용자가 상세 페이지 진입 시 addDetailCode()로만 동적 구독한다.
 
     private void sendCurrentRankTo(WebSocketSession session) {
         // 캐시가 있을 때만 즉시 전송.
@@ -116,13 +100,6 @@ public class StockRankBroadcastScheduler {
     private String buildRankPayload() throws Exception {
         // API 4번 → 2번으로 감소 (fetchVolumeRank("0") 중복 3회 제거)
         StockRankService.AllRankResult ranks = stockRankService.getAllRanks();
-
-        Set<String> codes = Stream.of(ranks.getTradeValue(), ranks.getVolume(),
-                        ranks.getTopGainers(), ranks.getTopLosers())
-                .flatMap(List::stream)
-                .map(StockSummaryDTO::getCode)
-                .collect(Collectors.toSet());
-        lastRankCodes = codes;
 
         Map<String, Object> payload = new HashMap<>();
         payload.put("type", "RANK");

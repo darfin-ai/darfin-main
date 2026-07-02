@@ -72,16 +72,23 @@ public class KisApiClient {
      */
     private ResponseEntity<String> exchangeWithRetry(String url, HttpHeaders headers) {
         HttpEntity<Void> req = new HttpEntity<>(headers);
-        try {
-            return restTemplate.exchange(url, HttpMethod.GET, req, String.class);
-        } catch (org.springframework.web.client.HttpServerErrorException e) {
-            if (e.getResponseBodyAsString().contains("EGW00201")) {
-                log.warn("EGW00201 — 1초 대기 후 재시도: {}", url);
-                try { Thread.sleep(1000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
-                throttle();
+        int attempts = 0;
+        while (true) {
+            try {
                 return restTemplate.exchange(url, HttpMethod.GET, req, String.class);
+            } catch (org.springframework.web.client.HttpServerErrorException e) {
+                attempts++;
+                if (attempts >= 3 || !e.getResponseBodyAsString().contains("EGW00201")) throw e;
+                log.warn("EGW00201 — {}초 대기 후 재시도: {}", attempts, url);
+                try { Thread.sleep(1000L * attempts); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                throttle();
+            } catch (org.springframework.web.client.ResourceAccessException e) {
+                attempts++;
+                if (attempts >= 3) throw e;
+                log.warn("KIS 네트워크 오류(Connection reset 등) — {}번째 재시도: {}", attempts, e.getMessage());
+                try { Thread.sleep(1000L * attempts); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                throttle();
             }
-            throw e;
         }
     }
 

@@ -72,7 +72,7 @@ public class WatchlistBroadcastScheduler {
      * 10초마다 등록된 관심종목 가격을 KIS REST로 갱신하고 브로드캐스트.
      * KisApiClient 내 rate limiter(250ms)가 호출 간격을 보장한다.
      */
-    @Scheduled(fixedDelay = 10000)
+    @Scheduled(fixedDelay = 10000, initialDelay = 5000)
     public void refreshAndBroadcast() {
         if (watchedCodes.isEmpty() || !wsHandler.hasActiveSessions()) return;
 
@@ -88,6 +88,8 @@ public class WatchlistBroadcastScheduler {
                 StockSummaryDTO stale = priceCache.get(code);
                 if (stale != null) stocks.add(stale);
             }
+            // KisRankApiClient와 동시 호출 시 TPS 초과 방지 — throttle 외 추가 안전거리
+            try { Thread.sleep(250); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
         }
 
         if (stocks.isEmpty()) return;

@@ -40,4 +40,14 @@ public class Funds {
         this.startDate = LocalDate.now();
         this.updatedAt = LocalDateTime.now();
     }
+
+    public void deductBalance(long amount) {
+        this.cashBalance -= amount;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void addBalance(long amount) {
+        this.cashBalance += amount;
+        this.updatedAt = LocalDateTime.now();
+    }
 }

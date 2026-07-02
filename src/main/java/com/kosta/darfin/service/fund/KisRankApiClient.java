@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDate;
@@ -355,6 +356,13 @@ public class KisRankApiClient {
                 log.warn("KIS rate limit(EGW00201) 발생 — {}번째 재시도 대기", attempts);
                 sleepQuietly(1200L * attempts);
                 throttleKisCall();
+            } catch (ResourceAccessException e) {
+                // Connection reset / SocketException 등 네트워크 순간 오류 — 최대 2회 재시도
+                attempts++;
+                if (attempts >= 3) throw e;
+                log.warn("KIS 네트워크 오류(Connection reset 등) — {}번째 재시도: {}", attempts, e.getMessage());
+                sleepQuietly(1000L * attempts);
+                throttleKisCall();
             }
         }
     }
@@ -511,7 +519,7 @@ public class KisRankApiClient {
                 + "&FID_ORG_ADJ_PRC=0";
 
         try {
-            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, request, String.class);
+            ResponseEntity<String> response = exchangeGetWithRetry(url, request);
             JsonNode output2 = objectMapper.readTree(response.getBody()).path("output2");
             List<CandleData> result = new ArrayList<>();
 
@@ -573,7 +581,7 @@ public class KisRankApiClient {
                 + "&FID_PERIOD_DIV_CODE=D";
 
         try {
-            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, request, String.class);
+            ResponseEntity<String> response = exchangeGetWithRetry(url, request);
             JsonNode output2 = objectMapper.readTree(response.getBody()).path("output2");
             List<IndexCandleData> result = new ArrayList<>();
             if (output2.isArray()) {
@@ -618,7 +626,7 @@ public class KisRankApiClient {
                 + "&FID_PW_DATA_INCU_YN=N";
 
         try {
-            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, request, String.class);
+            ResponseEntity<String> response = exchangeGetWithRetry(url, request);
             JsonNode output2 = objectMapper.readTree(response.getBody()).path("output2");
             List<IndexCandleData> result = new ArrayList<>();
             if (output2.isArray()) {
@@ -678,7 +686,7 @@ public class KisRankApiClient {
                 + "&FID_PERIOD_DIV_CODE=D";
 
         try {
-            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, request, String.class);
+            ResponseEntity<String> response = exchangeGetWithRetry(url, request);
             JsonNode output2 = objectMapper.readTree(response.getBody()).path("output2");
             List<IndexCandleData> result = new ArrayList<>();
             if (output2.isArray()) {
@@ -762,7 +770,7 @@ public class KisRankApiClient {
                 + "&FID_PW_DATA_INCU_YN=Y";
 
         try {
-            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, request, String.class);
+            ResponseEntity<String> response = exchangeGetWithRetry(url, request);
             JsonNode output2 = objectMapper.readTree(response.getBody()).path("output2");
             List<CandleData> result = new ArrayList<>();
             if (output2.isArray()) {
@@ -862,7 +870,7 @@ public class KisRankApiClient {
                 + "&FID_PW_DATA_INCU_YN=N";
 
         try {
-            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, request, String.class);
+            ResponseEntity<String> response = exchangeGetWithRetry(url, request);
             JsonNode output2 = objectMapper.readTree(response.getBody()).path("output2");
             List<CandleData> result = new ArrayList<>();
             if (output2.isArray()) {
