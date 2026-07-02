@@ -1,5 +1,6 @@
 package com.kosta.darfin.dto.fund;
 
+import com.kosta.darfin.entity.fund.FundHistory;
 import com.kosta.darfin.entity.fund.Funds;
 import com.kosta.darfin.entity.fund.Holdings;
 import com.kosta.darfin.entity.fund.Trades;
@@ -17,10 +18,12 @@ public class PortfolioResponse {
     private FundsInfo funds;
     private List<HoldingInfo> holdings;
     private List<TradeInfo> trades;
+    private List<FundHistoryInfo> fundHistory;
 
     public static PortfolioResponse from(Funds funds,
                                          List<Holdings> holdings,
-                                         List<Trades> trades) {
+                                         List<Trades> trades,
+                                         List<FundHistory> fundHistory) {
         return new PortfolioResponse(
                 new FundsInfo(funds.getInitialAmount(), funds.getCashBalance()),
                 holdings.stream()
@@ -38,6 +41,13 @@ public class PortfolioResponse {
                                 t.getPrice(),
                                 t.getTradedAt().toInstant(ZoneOffset.ofHours(9)).toEpochMilli(),
                                 t.getRealizedPnl()))
+                        .collect(Collectors.toList()),
+                fundHistory.stream()
+                        .map(h -> new FundHistoryInfo(
+                                h.getHistoryId(),
+                                h.getType(),
+                                h.getAmount(),
+                                h.getCreatedAt().toInstant(ZoneOffset.ofHours(9)).toEpochMilli()))
                         .collect(Collectors.toList())
         );
     }
@@ -67,5 +77,14 @@ public class PortfolioResponse {
         private Long price;
         private Long ts;
         private Long pnl;
+    }
+
+    @Getter
+    @AllArgsConstructor
+    public static class FundHistoryInfo {
+        private Long id;
+        private String type;
+        private Long amount;
+        private Long ts;
     }
 }

@@ -125,10 +125,19 @@ public class PaperTradingService {
         return buildPortfolio(user);
     }
 
+    private static final int DAILY_CHARGE_LIMIT = 3;
+
     @Transactional
     public PortfolioResponse charge(String email, long amount) {
         Users user = findUser(email);
         Funds funds = getOrCreateFunds(user);
+
+        LocalDateTime todayStart = LocalDate.now().atStartOfDay();
+        long chargedToday = fundHistoryRepository
+                .countByUser_IdAndTypeAndCreatedAtAfter(user.getId(), "CHARGE", todayStart);
+        if (chargedToday >= DAILY_CHARGE_LIMIT) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "자금 충전은 1일 " + DAILY_CHARGE_LIMIT + "회까지 가능합니다.");
+        }
 
         funds.updateCashBalance(funds.getCashBalance() + amount);
 
@@ -357,7 +366,8 @@ public class PaperTradingService {
         Funds funds = getOrCreateFunds(user);
         List<Holdings> holdings = holdingsRepository.findByUser_IdOrderByUpdatedAtDesc(user.getId());
         List<Trades> trades = tradesRepository.findByUser_IdOrderByTradedAtDesc(user.getId());
-        return PortfolioResponse.from(funds, holdings, trades);
+        List<FundHistory> fundHistory = fundHistoryRepository.findByUser_IdOrderByCreatedAtDesc(user.getId());
+        return PortfolioResponse.from(funds, holdings, trades, fundHistory);
     }
 
     private Funds getOrCreateFunds(Users user) {
