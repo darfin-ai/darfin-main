@@ -4,6 +4,7 @@ import com.kosta.darfin.dto.fund.MarketMetricDTO;
 import com.kosta.darfin.dto.fund.MarketOverviewDTO;
 import com.kosta.darfin.service.fund.KisRankApiClient;
 import com.kosta.darfin.service.fund.MarketOverviewService;
+import com.kosta.darfin.service.fund.StockRankService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -21,6 +22,7 @@ public class MarketController {
 
     private final MarketOverviewService marketOverviewService;
     private final KisRankApiClient kisRankApiClient;
+    private final StockRankService stockRankService;
 
     @GetMapping("/indices")
     public Map<String, MarketMetricDTO> getMarketIndices() {
@@ -53,6 +55,24 @@ public class MarketController {
     @GetMapping("/indices/{indexCode}/candles/intraday")
     public List<KisRankApiClient.IndexCandleData> getIndexIntradayCandles(@PathVariable String indexCode) {
         return kisRankApiClient.fetchIndexIntradayCandles(indexCode);
+    }
+
+    /**
+     * 지금 뜨는 산업 — 코스피 업종별(반도체/화학/건설 등, KIS FHPUP02140000) 등락률 순위.
+     * 응답: [{ name, code, pct }, ...]  등락률 내림차순 최대 10개.
+     */
+    @GetMapping("/industries")
+    public List<Map<String, Object>> getIndustries() {
+        return stockRankService.getIndustrySectorRanks();
+    }
+
+    /**
+     * 국내 투자자 동향 — 코스피 전체 개인/외국인/기관 순매수 거래대금(KIS FHPTJ04040000, 당일).
+     * 응답: [{ who:"개인"|"외국인"|"기관", val(백만원), buy(boolean) }, ...]
+     */
+    @GetMapping("/investor-sentiment")
+    public List<Map<String, Object>> getInvestorSentiment() {
+        return stockRankService.getMarketInvestorSentiment();
     }
 }
 

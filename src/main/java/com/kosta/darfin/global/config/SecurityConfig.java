@@ -46,6 +46,7 @@ public class SecurityConfig {
             .and()
             .authorizeRequests()
                 .antMatchers("/funds/watchlist/**").authenticated()
+                .antMatchers("/funds/paper/**").authenticated()
                 .antMatchers("/funds/**").permitAll()
                 .antMatchers("/ws/**").permitAll()
                 .antMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()

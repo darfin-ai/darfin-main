@@ -33,6 +33,10 @@ public class StockRankBroadcastScheduler {
     // 마지막 랭크 코드 목록 (구독 동기화 전용 — broadcast와 분리)
     private volatile Set<String> lastRankCodes = new java.util.HashSet<>();
 
+    // 투자자 동향·업종 순위 캐시 — 60초마다 갱신, RANK 브로드캐스트에 포함 (KIS rate limit 고려)
+    private volatile List<Map<String, Object>> cachedInvestorSentiment;
+    private volatile List<Map<String, Object>> cachedIndustries;
+
     public StockRankBroadcastScheduler(StockRankService stockRankService,
                                        MarketOverviewService marketOverviewService,
                                        StockWebSocketHandler stockWebSocketHandler,
@@ -67,6 +71,26 @@ public class StockRankBroadcastScheduler {
             log.info("랭크 브로드캐스트 완료");
         } catch (Exception e) {
             log.error("랭크 브로드캐스트 실패", e);
+        }
+    }
+
+    /**
+     * 60초마다 투자자 동향·업종 순위를 KIS API에서 갱신해 캐시에 저장.
+     * broadcastRankData()의 10초 주기와 분리 — KIS rate limit(초당 20건) 보호.
+     */
+    @Scheduled(fixedDelay = 60000)
+    public void refreshMarketExtraData() {
+        try {
+            cachedInvestorSentiment = stockRankService.getMarketInvestorSentiment();
+            log.info("투자자 동향 캐시 갱신 완료");
+        } catch (Exception e) {
+            log.warn("투자자 동향 캐시 갱신 실패: {}", e.getMessage());
+        }
+        try {
+            cachedIndustries = stockRankService.getIndustrySectorRanks();
+            log.info("업종 순위 캐시 갱신 완료");
+        } catch (Exception e) {
+            log.warn("업종 순위 캐시 갱신 실패: {}", e.getMessage());
         }
     }
 
@@ -108,6 +132,9 @@ public class StockRankBroadcastScheduler {
         payload.put("topGainers", ranks.getTopGainers());
         payload.put("topLosers", ranks.getTopLosers());
         payload.put("timestamp", System.currentTimeMillis());
+        // 60초마다 갱신되는 캐시 — 없으면 포함하지 않음 (프론트가 초기 REST 응답 유지)
+        if (cachedInvestorSentiment != null) payload.put("investorSentiment", cachedInvestorSentiment);
+        if (cachedIndustries != null) payload.put("industries", cachedIndustries);
 
         return objectMapper.writeValueAsString(payload);
     }

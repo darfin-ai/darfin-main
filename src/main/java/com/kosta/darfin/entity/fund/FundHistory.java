@@ -1,17 +1,20 @@
 package com.kosta.darfin.entity.fund;
 
 import com.kosta.darfin.entity.common.Users;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import javax.persistence.*;
 import java.time.LocalDateTime;
 
-// FundHistory.java
 @Entity
 @Table(name = "fund_history")
 @Getter
 @NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class FundHistory {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long historyId;

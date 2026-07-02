@@ -1,17 +1,20 @@
 package com.kosta.darfin.entity.fund;
 
 import com.kosta.darfin.entity.common.Users;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import javax.persistence.*;
 import java.time.LocalDateTime;
 
-// Trades.java
 @Entity
 @Table(name = "trades")
 @Getter
 @NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class Trades {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long tradeId;

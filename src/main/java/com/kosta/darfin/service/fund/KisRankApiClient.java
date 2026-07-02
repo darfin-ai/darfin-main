@@ -53,6 +53,8 @@ public class KisRankApiClient {
     private static final String TR_ID_INDEX_DAILY_CHART = "FHPUP02120000";
     private static final String TR_ID_INDEX_INTRADAY = "FHKUP03500200";
     private static final String TR_ID_OVERSEAS_DAILY_CHART = "FHKST03030100";
+    private static final String TR_ID_MARKET_INVESTOR = "FHPTJ04040000";
+    private static final String TR_ID_INDUSTRY_CATEGORY = "FHPUP02140000";
 
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -180,6 +182,106 @@ public class KisRankApiClient {
                     .build();
         } catch (Exception e) {
             throw new RuntimeException("KIS 지수 응답 파싱 실패: " + response.getBody(), e);
+        }
+    }
+
+    /**
+     * 시장별 투자자매매동향(일별) — 코스피 전체 개인/외국인/기관 순매수 거래대금(당일).
+     * TR_ID: FHPTJ04040000. 실계좌로 검증: output[0]이 최신일자이며 필드는 이미 백만원 단위
+     * (예: prsn_ntby_tr_pbmn=1739263 → 1.74조원 — 원 단위였다면 KOSPI 전체 순매수가 174만원일 리 없음).
+     * 과거 구현은 종목별 API(FHKST01010400)를 오용했는데, 그 응답엔 순매수 "금액" 필드 자체가 없어
+     * 항상 0을 반환하는 버그였다.
+     */
+    public InvestorSentimentItem fetchMarketInvestorSentiment() {
+        throttleKisCall();
+        String token = getRealToken();
+        HttpHeaders headers = realApiHeaders(token, TR_ID_MARKET_INVESTOR);
+        HttpEntity<Void> request = new HttpEntity<>(headers);
+
+        String today = LocalDate.now().format(DATE_FMT);
+        String url = KIS_REAL_BASE
+                + "/uapi/domestic-stock/v1/quotations/inquire-investor-daily-by-market"
+                + "?FID_COND_MRKT_DIV_CODE=U"
+                + "&FID_INPUT_ISCD=0001"
+                + "&FID_INPUT_DATE_1=" + today
+                + "&FID_INPUT_ISCD_1=KSP"
+                + "&FID_INPUT_DATE_2=" + today
+                + "&FID_INPUT_ISCD_2=0001";
+
+        try {
+            ResponseEntity<String> response = exchangeGetWithRetry(url, request);
+            JsonNode output = objectMapper.readTree(response.getBody()).path("output");
+            JsonNode latest = output.isArray() && output.size() > 0 ? output.get(0) : output;
+
+            InvestorSentimentItem item = InvestorSentimentItem.builder()
+                    .personalNetBuy(readLong(latest, "prsn_ntby_tr_pbmn"))
+                    .foreignNetBuy(readLong(latest, "frgn_ntby_tr_pbmn"))
+                    .institutionNetBuy(readLong(latest, "orgn_ntby_tr_pbmn"))
+                    .build();
+
+            if (item.getPersonalNetBuy() == 0 && item.getForeignNetBuy() == 0 && item.getInstitutionNetBuy() == 0) {
+                log.warn("투자자 동향 응답 필드 확인 필요: {}", response.getBody());
+            }
+            return item;
+        } catch (Exception e) {
+            log.warn("투자자 동향 조회 실패: {}", e.getMessage());
+            return InvestorSentimentItem.builder().personalNetBuy(0).foreignNetBuy(0).institutionNetBuy(0).build();
+        }
+    }
+
+    /**
+     * 국내업종 구분별전체시세(지금 뜨는 산업) — 코스피 업종별(반도체/화학/건설 등) 등락률.
+     * TR_ID: FHPUP02140000. output2에 "종합"(0001)/규모별(대형주 등)/배당테마 등 비산업 코드도
+     * 섞여 있어, 실계좌 확인 결과 실제 산업 분류는 업종코드 0005~0030 구간이라 그 범위만 사용한다.
+     */
+    public List<IndustryItem> fetchIndustryRanks() {
+        throttleKisCall();
+        String token = getRealToken();
+        HttpHeaders headers = realApiHeaders(token, TR_ID_INDUSTRY_CATEGORY);
+        HttpEntity<Void> request = new HttpEntity<>(headers);
+
+        String url = KIS_REAL_BASE
+                + "/uapi/domestic-stock/v1/quotations/inquire-index-category-price"
+                + "?FID_COND_MRKT_DIV_CODE=U"
+                + "&FID_INPUT_ISCD=0001"
+                + "&FID_COND_SCR_DIV_CODE=20214"
+                + "&FID_MRKT_CLS_CODE=K"
+                + "&FID_BLNG_CLS_CODE=0";
+
+        try {
+            ResponseEntity<String> response = exchangeGetWithRetry(url, request);
+            JsonNode output2 = objectMapper.readTree(response.getBody()).path("output2");
+            List<IndustryItem> result = new ArrayList<>();
+
+            if (output2.isArray()) {
+                for (JsonNode item : output2) {
+                    String code = item.path("bstp_cls_code").asText("");
+                    int codeNum;
+                    try {
+                        codeNum = Integer.parseInt(code);
+                    } catch (NumberFormatException e) {
+                        continue;
+                    }
+                    if (codeNum < 5 || codeNum > 30) continue; // 종합/규모별/배당테마 등 제외, 실제 업종만
+
+                    String name = readText(item, "hts_kor_isnm");
+                    if (name.isEmpty()) continue;
+                    result.add(IndustryItem.builder()
+                            .code(code)
+                            .name(name)
+                            .pct(readDouble(item, "bstp_nmix_prdy_ctrt"))
+                            .build());
+                }
+            }
+
+            result.sort((a, b) -> Double.compare(b.getPct(), a.getPct()));
+            if (result.isEmpty()) {
+                log.warn("업종 순위 응답 필드 확인 필요: {}", response.getBody());
+            }
+            return result;
+        } catch (Exception e) {
+            log.warn("업종 순위 조회 실패: {}", e.getMessage());
+            return Collections.emptyList();
         }
     }
 
@@ -838,6 +940,22 @@ public class KisRankApiClient {
         private Double changeRate;
         private Long tradeValue;
         private Long volume;
+    }
+
+    @Getter
+    @Builder
+    public static class InvestorSentimentItem {
+        private long personalNetBuy;    // 개인 순매수 거래대금 (백만원)
+        private long foreignNetBuy;     // 외국인 순매수 거래대금 (백만원)
+        private long institutionNetBuy; // 기관 순매수 거래대금 (백만원)
+    }
+
+    @Getter
+    @Builder
+    public static class IndustryItem {
+        private String code;
+        private String name;
+        private Double pct;
     }
 
     @Getter

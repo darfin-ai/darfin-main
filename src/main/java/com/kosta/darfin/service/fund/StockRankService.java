@@ -8,8 +8,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -91,6 +94,47 @@ public class StockRankService {
                 .sorted(comparator)
                 .limit(TOP_N)
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * 지금 뜨는 산업 — 코스피 업종별(반도체/화학/건설 등) 등락률 순위.
+     * KIS FHPUP02140000(국내업종 구분별전체시세)을 그대로 등락률 내림차순 최대 10개로 노출.
+     */
+    public List<Map<String, Object>> getIndustrySectorRanks() {
+        List<KisRankApiClient.IndustryItem> items = kisRankApiClient.fetchIndustryRanks();
+
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (KisRankApiClient.IndustryItem item : items) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("name", item.getName());
+            row.put("code", item.getCode());
+            row.put("pct", item.getPct());
+            result.add(row);
+        }
+        return result.size() > 10 ? result.subList(0, 10) : result;
+    }
+
+    /**
+     * 투자자 동향 — 코스피 전체 개인/외국인/기관 순매수 거래대금(당일).
+     * KIS FHPTJ04040000(시장별 투자자매매동향 일별): 이미 백만원 단위로 응답됨.
+     */
+    public List<Map<String, Object>> getMarketInvestorSentiment() {
+        KisRankApiClient.InvestorSentimentItem data = kisRankApiClient.fetchMarketInvestorSentiment();
+
+        List<Map<String, Object>> result = new ArrayList<>();
+        result.add(sentimentRow("개인",   data.getPersonalNetBuy()));
+        result.add(sentimentRow("외국인", data.getForeignNetBuy()));
+        result.add(sentimentRow("기관",   data.getInstitutionNetBuy()));
+        return result;
+    }
+
+    private Map<String, Object> sentimentRow(String who, long valMillion) {
+        long valEok = valMillion / 100; // KIS 필드는 백만원 단위 → 억원으로 변환 (Toss 등 타 서비스 기준)
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("who", who);
+        m.put("val", valEok);
+        m.put("buy", valEok >= 0);
+        return m;
     }
 
     private StockSummaryDTO toDto(KisRankApiClient.RankItem item) {
