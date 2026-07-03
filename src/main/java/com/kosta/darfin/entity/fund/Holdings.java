@@ -29,7 +29,13 @@ public class Holdings {
 
     private Integer quantity;
     private Long avgBuyPrice;
+    private LocalDateTime firstBoughtAt; // 현재 포지션 최초 매수 시각 — trades.holdDays 계산용
     private LocalDateTime updatedAt;
+
+    /** 최초 매수 시각 — 과거 데이터(컬럼 추가 전 생성 레코드)는 null이라 updatedAt으로 대체 */
+    public LocalDateTime getFirstBoughtAtOrFallback() {
+        return firstBoughtAt != null ? firstBoughtAt : updatedAt;
+    }
 
     /** 매수: 수량·평균단가 갱신 (포트폴리오 서비스용) */
     public void buy(int qty, long price) {
@@ -58,6 +64,17 @@ public class Holdings {
     /** 매도 후 수량 차감 (주문 서비스용) */
     public void applySell(int sellQty) {
         this.quantity -= sellQty;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    /**
+     * FIFO 매도 후 잔여 로트 집계로 재동기화.
+     * FIFO에서는 오래된(단가가 다른) 로트부터 빠지므로 잔여 평단·최초매수일이 달라진다.
+     */
+    public void applyFifoSell(int sellQty, Long remainingAvgPrice, LocalDateTime oldestRemainingBoughtAt) {
+        this.quantity -= sellQty;
+        if (remainingAvgPrice != null) this.avgBuyPrice = remainingAvgPrice;
+        if (oldestRemainingBoughtAt != null) this.firstBoughtAt = oldestRemainingBoughtAt;
         this.updatedAt = LocalDateTime.now();
     }
 }

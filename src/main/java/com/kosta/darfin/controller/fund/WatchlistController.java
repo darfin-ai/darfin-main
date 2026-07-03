@@ -1,5 +1,6 @@
 package com.kosta.darfin.controller.fund;
 
+import com.kosta.darfin.dto.fund.WatchlistResponse;
 import com.kosta.darfin.service.fund.WatchlistService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -17,8 +18,8 @@ public class WatchlistController {
     private final WatchlistService watchlistService;
 
     @GetMapping
-    public List<String> getWatchlist(@AuthenticationPrincipal UserDetails userDetails) {
-        return watchlistService.getWatchlistCodes(userDetails.getUsername());
+    public List<WatchlistResponse> getWatchlist(@AuthenticationPrincipal UserDetails userDetails) {
+        return watchlistService.getWatchlist(userDetails.getUsername());
     }
 
     @PutMapping("/{stockCode}")

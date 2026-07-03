@@ -5,15 +5,18 @@ import com.kosta.darfin.dto.fund.HoldingResponse;
 import com.kosta.darfin.dto.fund.OrderRequest;
 import com.kosta.darfin.dto.fund.OrderResponse;
 import com.kosta.darfin.dto.fund.PortfolioResponse;
+import com.kosta.darfin.dto.fund.StockTickDTO;
 import com.kosta.darfin.entity.common.Users;
 import com.kosta.darfin.entity.fund.FundHistory;
 import com.kosta.darfin.entity.fund.Funds;
+import com.kosta.darfin.entity.fund.HoldingLots;
 import com.kosta.darfin.entity.fund.Holdings;
 import com.kosta.darfin.entity.fund.StockInfo;
 import com.kosta.darfin.entity.fund.Trades;
 import com.kosta.darfin.repository.common.UsersRepository;
 import com.kosta.darfin.repository.fund.FundHistoryRepository;
 import com.kosta.darfin.repository.fund.FundsRepository;
+import com.kosta.darfin.repository.fund.HoldingLotsRepository;
 import com.kosta.darfin.repository.fund.HoldingsRepository;
 import com.kosta.darfin.repository.fund.StockInfoRepository;
 import com.kosta.darfin.repository.fund.TradesRepository;
@@ -27,6 +30,9 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -39,11 +45,13 @@ public class PaperTradingService {
     private final UsersRepository     usersRepository;
     private final FundsRepository     fundsRepository;
     private final HoldingsRepository  holdingsRepository;
+    private final HoldingLotsRepository holdingLotsRepository;
     private final TradesRepository    tradesRepository;
     private final FundHistoryRepository fundHistoryRepository;
     private final StockInfoRepository stockInfoRepository;
     private final StockInfoService    stockInfoService;
     private final KisApiClient        kisApiClient;
+    private final KisRealtimeClient   kisRealtimeClient;
 
     // =========================================================================
     // 포트폴리오 (기존 API — /funds/paper)
@@ -74,6 +82,7 @@ public class PaperTradingService {
             holdingsRepository.save(Holdings.builder()
                     .user(user).stockInfo(stockInfo)
                     .quantity(qty).avgBuyPrice(price)
+                    .firstBoughtAt(LocalDateTime.now())
                     .updatedAt(LocalDateTime.now())
                     .build());
         } else {
@@ -81,11 +90,14 @@ public class PaperTradingService {
         }
 
         funds.updateCashBalance(funds.getCashBalance() - cost);
+        saveLot(user, stockInfo, qty, price);
 
         tradesRepository.save(Trades.builder()
                 .user(user).stockInfo(stockInfo)
-                .type("BUY").status("DONE")
+                .type("BUY").status("COMPLETE")
+                .kisOrderNo(generateOrderNo())
                 .quantity(qty).price(price)
+                .realizedPnl(0L).holdDays(0)
                 .tradedAt(LocalDateTime.now())
                 .build());
 
@@ -106,18 +118,21 @@ public class PaperTradingService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "보유 수량이 부족합니다.");
         }
 
-        long pnl = (price - holding.getAvgBuyPrice()) * (long) qty;
-        boolean fullyExited = holding.sell(qty);
-        if (fullyExited) {
+        FifoSellResult fifo = consumeLotsFifo(user, holding, qty, price);
+        holding.applyFifoSell(qty, fifo.remainingAvgPrice, fifo.oldestRemainingBoughtAt);
+        if (holding.getQuantity() <= 0) {
             holdingsRepository.delete(holding);
         }
+        long pnl = fifo.realizedPnl;
 
         funds.updateCashBalance(funds.getCashBalance() + (long) qty * price);
 
         tradesRepository.save(Trades.builder()
                 .user(user).stockInfo(holding.getStockInfo())
-                .type("SELL").status("DONE")
+                .type("SELL").status("COMPLETE")
+                .kisOrderNo(generateOrderNo())
                 .quantity(qty).price(price).realizedPnl(pnl)
+                .holdDays(fifo.holdDays)
                 .tradedAt(LocalDateTime.now())
                 .build());
 
@@ -145,6 +160,7 @@ public class PaperTradingService {
         Users user = findUser(email);
         Funds funds = getOrCreateFunds(user);
 
+        holdingLotsRepository.deleteByUser_Id(user.getId());
         holdingsRepository.deleteByUser_Id(user.getId());
         funds.updateCashBalance(funds.getInitialAmount());
 
@@ -167,6 +183,7 @@ public class PaperTradingService {
                     .startDate(LocalDate.now()).updatedAt(LocalDateTime.now())
                     .build());
         } else {
+            holdingLotsRepository.deleteByUser_Id(user.getId());
             holdingsRepository.deleteByUser_Id(user.getId());
             funds.initAmount(amount);
         }
@@ -258,20 +275,25 @@ public class PaperTradingService {
                     .stockInfo(stock)
                     .quantity(req.getQuantity())
                     .avgBuyPrice(price)
+                    .firstBoughtAt(LocalDateTime.now())
                     .updatedAt(LocalDateTime.now())
                     .build();
         } else {
             holding.applyBuy(req.getQuantity(), price);
         }
         holdingsRepository.save(holding);
+        saveLot(user, stock, req.getQuantity(), price);
 
         Trades trade = Trades.builder()
                 .user(user)
                 .stockInfo(stock)
                 .type("BUY")
                 .status("COMPLETE")
+                .kisOrderNo(generateOrderNo())
                 .quantity(req.getQuantity())
                 .price(price)
+                .realizedPnl(0L)
+                .holdDays(0)
                 .tradedAt(LocalDateTime.now())
                 .build();
         tradesRepository.save(trade);
@@ -309,11 +331,13 @@ public class PaperTradingService {
 
         long price = resolvePrice(req);
         long total = price * req.getQuantity();
-        long realizedPnl = (price - holding.getAvgBuyPrice()) * req.getQuantity();
+
+        FifoSellResult fifo = consumeLotsFifo(user, holding, req.getQuantity(), price);
+        long realizedPnl = fifo.realizedPnl;
 
         funds.addBalance(total);
 
-        holding.applySell(req.getQuantity());
+        holding.applyFifoSell(req.getQuantity(), fifo.remainingAvgPrice, fifo.oldestRemainingBoughtAt);
         if (holding.getQuantity() <= 0) {
             holdingsRepository.delete(holding);
         } else {
@@ -326,9 +350,11 @@ public class PaperTradingService {
                 .stockInfo(stock)
                 .type("SELL")
                 .status("COMPLETE")
+                .kisOrderNo(generateOrderNo())
                 .quantity(req.getQuantity())
                 .price(price)
                 .realizedPnl(realizedPnl)
+                .holdDays(fifo.holdDays)
                 .tradedAt(LocalDateTime.now())
                 .build();
         tradesRepository.save(trade);
@@ -357,7 +383,26 @@ public class PaperTradingService {
         Funds funds = getOrCreateFunds(user);
         List<Holdings> holdings = holdingsRepository.findByUser_IdOrderByUpdatedAtDesc(user.getId());
         List<Trades> trades = tradesRepository.findByUser_IdOrderByTradedAtDesc(user.getId());
-        return PortfolioResponse.from(funds, holdings, trades);
+        Map<String, Long> currentPrices = holdings.stream()
+                .map(h -> {
+                    String code = h.getStockInfo().getStockCode();
+                    StockTickDTO tick = kisRealtimeClient.getLastTick(code);
+                    return tick != null && tick.getPrice() != null
+                            ? new java.util.AbstractMap.SimpleEntry<>(code, tick.getPrice())
+                            : null;
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (a, b) -> a));
+        Map<String, String> stockNames = holdings.stream()
+                .collect(Collectors.toMap(
+                        h -> h.getStockInfo().getStockCode(),
+                        h -> stockInfoService.getCachedNameOrFallback(
+                                h.getStockInfo().getStockCode(),
+                                h.getStockInfo().getStockName()
+                        ),
+                        (a, b) -> a
+                ));
+        return PortfolioResponse.from(funds, holdings, trades, currentPrices, stockNames);
     }
 
     private Funds getOrCreateFunds(Users user) {
@@ -394,6 +439,103 @@ public class PaperTradingService {
         if (!"LIMIT".equalsIgnoreCase(orderType) && !"MARKET".equalsIgnoreCase(orderType)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "주문 유형은 LIMIT 또는 MARKET이어야 합니다.");
         }
+    }
+
+    /**
+     * 모의투자 주문번호 — 실제 KIS 주문이 아니므로 KIS 형식(일자+일련번호)을 본뜬 자체 번호를 발급.
+     * 예: PT20260703143025123-4821
+     */
+    private String generateOrderNo() {
+        String ts = LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS"));
+        int rand = java.util.concurrent.ThreadLocalRandom.current().nextInt(1000, 10000);
+        return "PT" + ts + "-" + rand;
+    }
+
+    /** 매수 1건 = FIFO 로트 1건 */
+    private void saveLot(Users user, StockInfo stock, int qty, long price) {
+        holdingLotsRepository.save(HoldingLots.builder()
+                .user(user).stockInfo(stock)
+                .remainingQuantity(qty).buyPrice(price)
+                .boughtAt(LocalDateTime.now())
+                .build());
+    }
+
+    /** FIFO 매도 계산 결과 */
+    private static class FifoSellResult {
+        final long realizedPnl;                      // 로트별 매수가 기준 정확 실현손익
+        final int holdDays;                          // 소진 수량 가중평균 보유일수
+        final Long remainingAvgPrice;                // 잔여 로트 기준 평단 (잔여 없으면 null)
+        final LocalDateTime oldestRemainingBoughtAt; // 잔여 로트 중 최초 매수 시각 (잔여 없으면 null)
+
+        FifoSellResult(long realizedPnl, int holdDays, Long remainingAvgPrice, LocalDateTime oldestRemainingBoughtAt) {
+            this.realizedPnl = realizedPnl;
+            this.holdDays = holdDays;
+            this.remainingAvgPrice = remainingAvgPrice;
+            this.oldestRemainingBoughtAt = oldestRemainingBoughtAt;
+        }
+    }
+
+    /**
+     * 오래된 로트부터 sellQty를 소진하며 로트 단가 기준 실현손익과
+     * 수량 가중 평균 보유일수를 계산한다.
+     * 로트 합계가 보유 수량보다 적으면(로트 도입 전 매수분) 부족분을
+     * 보유 평단·최초매수일 기준의 레거시 로트로 보충한 뒤 소진한다.
+     */
+    private FifoSellResult consumeLotsFifo(Users user, Holdings holding, int sellQty, long sellPrice) {
+        String stockCode = holding.getStockInfo().getStockCode();
+        List<HoldingLots> lots = new java.util.ArrayList<>(holdingLotsRepository
+                .findByUser_IdAndStockInfo_StockCodeOrderByBoughtAtAscLotIdAsc(user.getId(), stockCode));
+
+        int lotTotal = lots.stream().mapToInt(HoldingLots::getRemainingQuantity).sum();
+        int shortage = holding.getQuantity() - lotTotal;
+        if (shortage > 0) {
+            LocalDateTime legacyBoughtAt = holding.getFirstBoughtAtOrFallback() != null
+                    ? holding.getFirstBoughtAtOrFallback() : LocalDateTime.now();
+            HoldingLots legacy = holdingLotsRepository.save(HoldingLots.builder()
+                    .user(user).stockInfo(holding.getStockInfo())
+                    .remainingQuantity(shortage)
+                    .buyPrice(holding.getAvgBuyPrice())
+                    .boughtAt(legacyBoughtAt)
+                    .build());
+            lots.add(0, legacy); // 도입 전 매수분이므로 가장 오래된 것으로 취급
+        }
+
+        long pnl = 0;
+        long weightedDays = 0;
+        int remainingToSell = sellQty;
+        LocalDate today = LocalDate.now();
+
+        for (HoldingLots lot : lots) {
+            if (remainingToSell <= 0) break;
+            int take = Math.min(lot.getRemainingQuantity(), remainingToSell);
+            if (take <= 0) continue;
+
+            pnl += (sellPrice - lot.getBuyPrice()) * (long) take;
+            long days = Math.max(0, java.time.temporal.ChronoUnit.DAYS.between(lot.getBoughtAt().toLocalDate(), today));
+            weightedDays += days * (long) take;
+
+            lot.consume(take);
+            remainingToSell -= take;
+            if (lot.getRemainingQuantity() <= 0) holdingLotsRepository.delete(lot);
+            else holdingLotsRepository.save(lot);
+        }
+
+        // 잔여 로트 기준 평단·최초매수일 재계산 (Holdings 집계 동기화용)
+        long remCost = 0;
+        int remQty = 0;
+        LocalDateTime oldestRemaining = null;
+        for (HoldingLots lot : lots) {
+            if (lot.getRemainingQuantity() <= 0) continue;
+            remCost += lot.getBuyPrice() * (long) lot.getRemainingQuantity();
+            remQty += lot.getRemainingQuantity();
+            if (oldestRemaining == null || lot.getBoughtAt().isBefore(oldestRemaining)) {
+                oldestRemaining = lot.getBoughtAt();
+            }
+        }
+        Long remainingAvg = remQty > 0 ? remCost / remQty : null;
+        int holdDays = sellQty > 0 ? (int) (weightedDays / sellQty) : 0;
+
+        return new FifoSellResult(pnl, holdDays, remainingAvg, oldestRemaining);
     }
 
     private Users findUser(String email) {

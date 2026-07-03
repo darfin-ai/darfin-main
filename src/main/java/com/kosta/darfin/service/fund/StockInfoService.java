@@ -4,7 +4,10 @@ import com.kosta.darfin.entity.fund.StockInfo;
 import com.kosta.darfin.repository.fund.StockInfoRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
@@ -45,6 +48,29 @@ public class StockInfoService {
                 .orElse(fallback);
     }
 
+    /**
+     * 관심종목/모의투자 FK 생성을 위해 stock 마스터 테이블의 기업명만으로 stock_info를 보장한다.
+     * 가격·재무 필드는 이후 상세/요약 조회에서 KIS 응답으로 보강된다.
+     */
+    @Transactional
+    public StockInfo getOrCreateFromStockMaster(String stockCode) {
+        Optional<StockInfo> cached = stockInfoRepository.findById(stockCode);
+        if (cached.isPresent()) return cached.get();
+
+        String stockName = stockInfoRepository.findCompanyNameByStockCode(stockCode)
+                .filter(name -> name != null && !name.isBlank())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "종목을 찾을 수 없습니다: " + stockCode));
+
+        stockInfoRepository.insertStockInfo(
+                stockCode, stockName, null, null,
+                null, null, null, LocalDateTime.now()
+        );
+        log.info("stock_info 마스터 기반 적재: {} ({})", stockCode, stockName);
+
+        return stockInfoRepository.findById(stockCode)
+                .orElseThrow(() -> new IllegalStateException("저장 직후 조회 실패: " + stockCode));
+    }
+
     private boolean isStale(StockInfo info) {
         return info.getUpdatedAt() == null
                 || info.getUpdatedAt().isBefore(LocalDateTime.now().minusDays(CACHE_TTL_DAYS));
@@ -54,7 +80,7 @@ public class StockInfoService {
      * 이미 가진 StockBasicInfo로 KIS 재호출 없이 stock_info를 적재.
      * /info 엔드포인트처럼 fetchStockBasicInfo를 먼저 호출한 뒤 결과를 재사용할 때 사용.
      */
-    @org.springframework.transaction.annotation.Transactional
+    @Transactional
     public void saveIfAbsent(String stockCode, KisApiClient.StockBasicInfo fetched) {
         if (stockInfoRepository.existsById(stockCode)) return;
         String stockName = getCachedNameOrFallback(stockCode, fetched.getStockName());

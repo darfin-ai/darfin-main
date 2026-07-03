@@ -1,5 +1,6 @@
 package com.kosta.darfin.service.fund;
 
+import com.kosta.darfin.dto.fund.WatchlistResponse;
 import com.kosta.darfin.entity.common.Users;
 import com.kosta.darfin.entity.fund.StockInfo;
 import com.kosta.darfin.entity.fund.Watchlist;
@@ -33,6 +34,17 @@ public class WatchlistService {
                 .collect(Collectors.toList());
     }
 
+    public List<WatchlistResponse> getWatchlist(String email) {
+        Users user = findUser(email);
+        return watchlistRepository.findByUser_IdOrderByCreatedAtDesc(user.getId()).stream()
+                .map(w -> {
+                    String code = w.getStockInfo().getStockCode();
+                    String name = stockInfoService.getCachedNameOrFallback(code, w.getStockInfo().getStockName());
+                    return new WatchlistResponse(code, name);
+                })
+                .collect(Collectors.toList());
+    }
+
     @Transactional
     public void addToWatchlist(String email, String stockCode) {
         Users user = findUser(email);
@@ -44,7 +56,7 @@ public class WatchlistService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "관심종목은 최대 " + MAX_WATCHLIST_SIZE + "개까지 등록할 수 있습니다.");
         }
 
-        StockInfo stockInfo = stockInfoService.getOrFetch(stockCode);
+        StockInfo stockInfo = stockInfoService.getOrCreateFromStockMaster(stockCode);
         watchlistRepository.save(Watchlist.builder()
                 .user(user)
                 .stockInfo(stockInfo)

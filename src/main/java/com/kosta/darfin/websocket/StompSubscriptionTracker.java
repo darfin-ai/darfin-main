@@ -1,8 +1,10 @@
 package com.kosta.darfin.websocket;
 
+import com.kosta.darfin.dto.fund.StockTickDTO;
 import com.kosta.darfin.service.fund.KisRealtimeClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.context.event.EventListener;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.stereotype.Component;
@@ -31,6 +33,7 @@ public class StompSubscriptionTracker {
     private static final Pattern PRICE = Pattern.compile("^/topic/price/([^/]+)$");
 
     private final KisRealtimeClient kisRealtimeClient;
+    private final SimpMessagingTemplate simpMessagingTemplate;
 
     // destination → 구독 중인 subscriptionKey(sessionId:subscriptionId) 집합
     private final Map<String, Set<String>> destinationSubscribers = new ConcurrentHashMap<>();
@@ -62,6 +65,17 @@ public class StompSubscriptionTracker {
         Matcher detailMatcher = DETAIL_EXECUTION.matcher(destination);
         if (detailMatcher.matches()) {
             kisRealtimeClient.addDetailCode(detailMatcher.group(1));
+            return;
+        }
+
+        Matcher priceMatcher = PRICE.matcher(destination);
+        if (priceMatcher.matches()) {
+            String code = priceMatcher.group(1);
+            kisRealtimeClient.addPriceCode(code);
+            StockTickDTO lastTick = kisRealtimeClient.getLastTick(code);
+            if (lastTick != null) {
+                simpMessagingTemplate.convertAndSend(destination, lastTick);
+            }
         }
     }
 
@@ -98,6 +112,12 @@ public class StompSubscriptionTracker {
         Matcher detailMatcher = DETAIL_EXECUTION.matcher(destination);
         if (detailMatcher.matches()) {
             kisRealtimeClient.removeDetailCode(detailMatcher.group(1));
+            return;
+        }
+
+        Matcher priceMatcher = PRICE.matcher(destination);
+        if (priceMatcher.matches()) {
+            kisRealtimeClient.removePriceCode(priceMatcher.group(1));
         }
     }
 
