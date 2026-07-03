@@ -61,12 +61,13 @@ public class DartApiService {
 
     /**
      * 키워드로 stock 테이블에서 기업을 검색합니다 (DB 검색, DART API 직접 호출 아님).
+     * stock_code가 있는 실제 상장 종목만 반환합니다.
      */
     public List<Stock> searchByKeyword(String keyword) {
         if (keyword == null || keyword.isBlank()) {
             return List.of();
         }
-        return stockRepository.findByCompanyNameContainingIgnoreCaseOrderByCompanyNameAsc(keyword);
+        return stockRepository.findByStockCodeIsNotNullAndCompanyNameContainingIgnoreCaseOrderByCompanyNameAsc(keyword);
     }
 
     // -------------------------------------------------------------------------
