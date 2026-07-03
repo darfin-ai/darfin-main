@@ -15,6 +15,7 @@ import org.springframework.web.client.RestTemplate;
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 import java.net.URI;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -62,6 +63,9 @@ public class KisRealtimeClient {
 
     // 종목별 마지막 체결 틱 캐시 — /topic/price/{code} 신규 구독자에게 즉시 전송하는 데 사용
     private final ConcurrentHashMap<String, StockTickDTO> lastTickCache = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, LocalDateTime> lastTickReceivedAt = new ConcurrentHashMap<>();
+    // 상세/랭크 외 화면이 직접 /topic/price/{code} 를 구독한 종목
+    private final Set<String> directPriceCodes = ConcurrentHashMap.newKeySet();
 
     public KisRealtimeClient(SimpMessagingTemplate simpMessagingTemplate) {
         this.simpMessagingTemplate = simpMessagingTemplate;
@@ -71,19 +75,71 @@ public class KisRealtimeClient {
         return lastTickCache.get(code);
     }
 
+    public LocalDateTime getLastTickReceivedAt(String code) {
+        return lastTickReceivedAt.get(code);
+    }
+
+    public void addPriceCode(String stockCode) {
+        directPriceCodes.add(stockCode);
+        if (isConnected() && subscribedCodes.add(stockCode)) {
+            subscribe("H0STCNT0", stockCode);
+            log.info("가격 구독 추가: {}", stockCode);
+        } else {
+            log.info("가격 구독 대기/유지: {} connected={} alreadySubscribed={}",
+                    stockCode, isConnected(), subscribedCodes.contains(stockCode));
+        }
+    }
+
+    public void removePriceCode(String stockCode) {
+        directPriceCodes.remove(stockCode);
+        if (!detailCodes.contains(stockCode) && subscribedCodes.remove(stockCode) && isConnected()) {
+            unsubscribe("H0STCNT0", stockCode);
+            log.info("가격 구독 해제: {}", stockCode);
+        }
+    }
+
+    // 재연결 스케줄러 — KIS는 장 마감/점검 시 연결을 끊으므로 자동 재연결이 없으면 실시간 시세가 영구 중단된다
+    private final java.util.concurrent.ScheduledExecutorService reconnectExecutor =
+            java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "kis-ws-reconnect");
+                t.setDaemon(true);
+                return t;
+            });
+    private final AtomicBoolean reconnectScheduled = new AtomicBoolean(false);
+    private volatile boolean shuttingDown = false;
+
+    private static final long RECONNECT_DELAY_SECONDS = 10;
+
     @PostConstruct
     public void init() {
-        connect();
+        try {
+            connect();
+        } catch (Exception e) {
+            // 부팅 시점에 KIS가 죽어 있어도 앱은 뜨고, 백그라운드에서 재시도한다
+            log.error("KIS WebSocket 최초 연결 실패 — {}초 후 재시도", RECONNECT_DELAY_SECONDS, e);
+            scheduleReconnect();
+        }
+    }
+
+    private void scheduleReconnect() {
+        if (shuttingDown) return;
+        if (!reconnectScheduled.compareAndSet(false, true)) return; // 중복 예약 방지
+        reconnectExecutor.schedule(() -> {
+            reconnectScheduled.set(false);
+            try {
+                connect();
+            } catch (Exception e) {
+                log.warn("KIS 재연결 실패 — {}초 후 재시도: {}", RECONNECT_DELAY_SECONDS, e.getMessage());
+                scheduleReconnect();
+            }
+        }, RECONNECT_DELAY_SECONDS, java.util.concurrent.TimeUnit.SECONDS);
     }
 
     /**
-     * Approval Key 발급
+     * Approval Key 발급 — 접속키는 연결 단위이므로 캐시하지 않고 connect()마다 새로 발급한다
+     * (만료된 키로 재연결하면 구독이 전부 거부됨)
      */
     private String getApprovalKey() {
-
-        if (approvalKey != null) {
-            return approvalKey;
-        }
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -144,6 +200,7 @@ public class KisRealtimeClient {
                 @Override
                 public void onOpen(ServerHandshake handshake) {
                     log.info("===== KIS WebSocket OPEN =====");
+                    subscribedCodes.addAll(directPriceCodes);
                     boolean hasAnything = !subscribedCodes.isEmpty() || !aspSubscribedCodes.isEmpty();
                     if (!hasAnything) {
                         log.info("구독 종목 없음 — 랭크 스케줄러의 첫 번째 요청 대기 중");
@@ -173,6 +230,8 @@ public class KisRealtimeClient {
 
                     log.warn("===== KIS CLOSED =====");
                     log.warn("code={} reason={} remote={}", code, reason, remote);
+                    // 장 마감/점검/네트워크 단절 — 자동 재연결 (성공 시 onOpen에서 기존 구독 복원)
+                    scheduleReconnect();
 
                 }
 
@@ -185,6 +244,8 @@ public class KisRealtimeClient {
 
             };
 
+            // half-open 연결 감지: 30초간 응답 없으면 라이브러리가 연결을 끊어 onClose → 재연결로 이어진다
+            client.setConnectionLostTimeout(30);
             client.connect();
 
         } catch (Exception e) {
@@ -228,6 +289,8 @@ public class KisRealtimeClient {
 
     @PreDestroy
     public void destroy() {
+        shuttingDown = true; // 종료 시 onClose가 재연결을 걸지 않도록
+        reconnectExecutor.shutdownNow();
         disconnect();
     }
 
@@ -311,6 +374,7 @@ public class KisRealtimeClient {
 
                 StockTickDTO tick = new StockTickDTO(code, price, pct, cumVolume, cumTradeValueEok, time);
                 lastTickCache.put(code, tick);
+                lastTickReceivedAt.put(code, LocalDateTime.now());
                 simpMessagingTemplate.convertAndSend("/topic/price/" + code, tick);
 
                 // 상세 페이지 구독자에게만 EXECUTION 전송
@@ -407,6 +471,7 @@ public class KisRealtimeClient {
         // detailCodes 포함하여 구독 대상 결정
         Set<String> combined = new HashSet<>(targetCodes);
         combined.addAll(detailCodes);
+        combined.addAll(directPriceCodes);
 
         // 한도 초과 방지: 상위 maxSubscriptions개만 유지
         Set<String> limited = combined.stream()

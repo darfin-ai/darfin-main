@@ -9,6 +9,7 @@ import com.kosta.darfin.entity.fund.StockInfo;
 import com.kosta.darfin.entity.fund.StockPriceRealtime;
 import com.kosta.darfin.service.fund.KisApiClient;
 import com.kosta.darfin.service.fund.KisRankApiClient;
+import com.kosta.darfin.service.fund.StockChartService;
 import com.kosta.darfin.service.fund.StockInfoService;
 import com.kosta.darfin.service.fund.StockPriceService;
 import com.kosta.darfin.service.fund.WatchlistBroadcastScheduler;
@@ -35,6 +36,7 @@ public class StockController {
 
     private final StockInfoService stockInfoService;
     private final StockPriceService stockPriceService;
+    private final StockChartService stockChartService;
     private final KisApiClient kisApiClient;
     private final KisRankApiClient kisRankApiClient;
     private final WatchlistBroadcastScheduler watchlistBroadcastScheduler;
@@ -55,19 +57,19 @@ public class StockController {
      */
     @GetMapping("/{stockCode}/candles")
     public List<KisRankApiClient.CandleData> getCandles(@PathVariable String stockCode) {
-        return kisRankApiClient.fetchDailyCandles(stockCode);
+        return stockChartService.getDailyCandles(stockCode);
     }
 
     /** 분봉 조회 — CandleData.date 가 HHMMSS 형식 */
     @GetMapping("/{stockCode}/candles/intraday")
     public List<KisRankApiClient.CandleData> getIntradayCandles(@PathVariable String stockCode) {
-        return kisRankApiClient.fetchIntradayCandles(stockCode);
+        return stockChartService.getIntradayCandles(stockCode);
     }
 
     /** 시봉 조회 (주봉용) — CandleData.date 가 YYYYMMDDHH 형식 */
     @GetMapping("/{stockCode}/candles/weekly")
     public List<KisRankApiClient.CandleData> getWeeklyCandles(@PathVariable String stockCode) {
-        return kisRankApiClient.fetchWeeklyIntradayCandles(stockCode);
+        return stockChartService.getWeeklyCandles(stockCode);
     }
 
     /** 일별 시세 — 일자, 종가, 등락률, 거래량 (최신 순, 최대 100일) */
@@ -168,7 +170,8 @@ public class StockController {
         String stockName = stockInfoService.getCachedNameOrFallback(stockCode, raw.getStockName());
 
         String logoUrl = "https://file.alphasquare.co.kr/media/images/stock_logo/kr/" + stockCode + ".png";
-        return new StockSummaryDTO(stockCode, stockName, currentPrice, pct, valueInEok, raw.getVolume(), logoUrl);
+        // sector는 관심종목 레일에서 표시하지 않으므로 null — 필요해지면 stock_info 조회로 채울 것
+        return new StockSummaryDTO(stockCode, stockName, currentPrice, pct, valueInEok, raw.getVolume(), null, logoUrl);
     }
 
 }

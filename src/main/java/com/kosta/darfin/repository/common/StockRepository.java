@@ -14,5 +14,5 @@ public interface StockRepository extends JpaRepository<Stock, Long> {
 
     Optional<Stock> findByStockCode(String stockCode);
 
-    List<Stock> findByCompanyNameContainingIgnoreCaseOrderByCompanyNameAsc(String keyword);
+    List<Stock> findByStockCodeIsNotNullAndCompanyNameContainingIgnoreCaseOrderByCompanyNameAsc(String keyword);
 }

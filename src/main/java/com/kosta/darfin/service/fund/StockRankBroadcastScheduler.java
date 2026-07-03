@@ -65,21 +65,28 @@ public class StockRankBroadcastScheduler {
             simpMessagingTemplate.convertAndSend("/topic/rank", payload);
             log.info("랭크 브로드캐스트 완료");
 
-            syncRealtimeSubscriptions(ranks);
+            Set<String> rankCodes = collectRankCodes(ranks);
+            syncRealtimeSubscriptions(rankCodes);
+            // 업종 태그: DB에 없는 랭크 종목을 주기당 2개씩 KIS에서 적재 (rate limit 보호)
+            stockRankService.backfillMissingSectors(rankCodes, 2);
         } catch (Exception e) {
             log.error("랭크 브로드캐스트 실패", e);
         }
     }
 
-    /** 순위표 4탭 종목 + 관심종목 등 /topic/price 구독 종목을 합쳐 KIS 실시간 구독을 갱신한다. */
-    private void syncRealtimeSubscriptions(StockRankService.AllRankResult ranks) {
-        Set<String> targetCodes = new HashSet<>();
-        collectCodes(targetCodes, ranks.getTradeValue());
-        collectCodes(targetCodes, ranks.getVolume());
-        collectCodes(targetCodes, ranks.getTopGainers());
-        collectCodes(targetCodes, ranks.getTopLosers());
-        targetCodes.addAll(subscriptionTracker.getSubscribedPriceCodes());
+    private Set<String> collectRankCodes(StockRankService.AllRankResult ranks) {
+        Set<String> codes = new HashSet<>();
+        collectCodes(codes, ranks.getTradeValue());
+        collectCodes(codes, ranks.getVolume());
+        collectCodes(codes, ranks.getTopGainers());
+        collectCodes(codes, ranks.getTopLosers());
+        return codes;
+    }
 
+    /** 순위표 4탭 종목 + 관심종목 등 /topic/price 구독 종목을 합쳐 KIS 실시간 구독을 갱신한다. */
+    private void syncRealtimeSubscriptions(Set<String> rankCodes) {
+        Set<String> targetCodes = new HashSet<>(rankCodes);
+        targetCodes.addAll(subscriptionTracker.getSubscribedPriceCodes());
         kisRealtimeClient.syncSubscriptions(targetCodes);
     }
 
@@ -135,4 +142,5 @@ public class StockRankBroadcastScheduler {
             return null;
         }
     }
+
 }
