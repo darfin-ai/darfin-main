@@ -10,6 +10,8 @@ public interface StockRepository extends JpaRepository<Stock, Long> {
 
     Optional<Stock> findByDartCorpCode(String dartCorpCode);
 
+    boolean existsByDartCorpCode(String dartCorpCode);
+
     Optional<Stock> findByStockCode(String stockCode);
 
     List<Stock> findByCompanyNameContainingIgnoreCaseOrderByCompanyNameAsc(String keyword);

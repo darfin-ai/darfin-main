@@ -1,12 +1,10 @@
 package com.kosta.darfin.entity.disclosure;
 
-
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import javax.persistence.*;
 
-// RiskScale.java
 @Entity
 @Table(name = "risk_scale")
 @IdClass(RiskScaleId.class)

@@ -2,14 +2,15 @@ package com.kosta.darfin.entity.disclosure;
 
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 import javax.persistence.*;
 import java.time.LocalDateTime;
 
-// AiAnalysisItem.java
 @Entity
 @Table(name = "ai_analysis_item")
 @Getter
+@Setter
 @NoArgsConstructor
 public class AiAnalysisItem {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)

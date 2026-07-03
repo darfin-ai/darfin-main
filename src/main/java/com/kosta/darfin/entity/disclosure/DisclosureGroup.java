@@ -5,7 +5,6 @@ import lombok.NoArgsConstructor;
 
 import javax.persistence.*;
 
-// DisclosureGroup.java
 @Entity
 @Table(name = "disclosure_group")
 @Getter

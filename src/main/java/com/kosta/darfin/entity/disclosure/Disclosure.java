@@ -3,15 +3,16 @@ package com.kosta.darfin.entity.disclosure;
 import com.kosta.darfin.entity.common.Stock;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 import javax.persistence.*;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
-// Disclosure.java
 @Entity
 @Table(name = "disclosure")
 @Getter
+@Setter
 @NoArgsConstructor
 public class Disclosure {
     @Id

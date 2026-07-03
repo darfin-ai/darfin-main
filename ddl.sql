@@ -259,30 +259,9 @@ CREATE TABLE community_comments (
 
 -- =====================================================================
 -- 5. 용어사전
+-- 용어 마스터 데이터와 매칭 로직은 darfin-disclosure(Python) 서비스로 이전했다.
+-- app/data/dictionary_terms.json 파일로 관리하며, DB 테이블은 더 이상 쓰지 않는다.
 -- =====================================================================
-
--- 사전 본체
-CREATE TABLE dictionary_term (
-    id              BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    term            VARCHAR(100) NOT NULL,                     -- 용어 검색의 핵심, 필수
-    category        VARCHAR(20)  NOT NULL,                      -- ACCOUNTING, LAW
-    raw_definition  TEXT         NOT NULL,
-    source_type     VARCHAR(20)  NOT NULL,                       -- KSD, LAW
-    created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX idx_dictionary_term_term ON dictionary_term(term);
-
--- 이미 하이라이트된 단어 저장 (공시원문 ↔ 용어사전 매핑)
-CREATE TABLE dictionary_highlight (
-    id          BIGINT  NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    rcept_no    VARCHAR(14) NOT NULL,                          -- disclosure.rcept_no 참조
-    term_id     BIGINT  NOT NULL,                               -- dictionary_term.id 참조
-    start_index INT     NULL,                                    -- 텍스트 하이라이트 시작 인덱스
-    end_index   INT     NULL,                                    -- 텍스트 하이라이트 끝 인덱스
-    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (rcept_no) REFERENCES disclosure(rcept_no),
-    FOREIGN KEY (term_id) REFERENCES dictionary_term(id)
-);
 
 
 -- =====================================================================

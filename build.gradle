@@ -48,6 +48,9 @@ dependencies {
     annotationProcessor "com.querydsl:querydsl-apt:5.0.0:jpa" // :jpa 필수
     annotationProcessor 'javax.persistence:javax.persistence-api:2.2'
 
+    // RestTemplate용 Apache HttpClient (타임아웃 설정, DART ZIP 다운로드용)
+    implementation 'org.apache.httpcomponents:httpclient:4.5.14'
+
     // Mail
     implementation 'org.springframework.boot:spring-boot-starter-mail'
 
