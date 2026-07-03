@@ -133,8 +133,6 @@ public class StockController {
                 .filter(s -> !s.isEmpty())
                 .collect(Collectors.toList());
 
-        watchlistBroadcastScheduler.registerCodes(codeList);
-
         List<StockSummaryDTO> cached = watchlistBroadcastScheduler.getCached(codeList);
         if (!cached.isEmpty()) return cached;
 
@@ -143,7 +141,9 @@ public class StockController {
         for (String code : codeList) {
             try {
                 KisApiClient.StockBasicInfo info = kisApiClient.fetchStockBasicInfo(code);
-                results.add(toSummaryDto(code, info));
+                StockSummaryDTO dto = toSummaryDto(code, info);
+                watchlistBroadcastScheduler.cache(code, dto);
+                results.add(dto);
             } catch (Exception e) {
                 log.warn("종목 {} 시세 조회 실패, 스킵: {}", code, e.getMessage());
             }
@@ -168,7 +168,7 @@ public class StockController {
         String stockName = stockInfoService.getCachedNameOrFallback(stockCode, raw.getStockName());
 
         String logoUrl = "https://file.alphasquare.co.kr/media/images/stock_logo/kr/" + stockCode + ".png";
-        return new StockSummaryDTO(stockCode, stockName, currentPrice, pct, valueInEok, logoUrl);
+        return new StockSummaryDTO(stockCode, stockName, currentPrice, pct, valueInEok, raw.getVolume(), logoUrl);
     }
 
 }

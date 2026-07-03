@@ -1,17 +1,19 @@
 package com.kosta.darfin.service.fund;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kosta.darfin.dto.fund.MarketOverviewDTO;
-import com.kosta.darfin.websocket.StockWebSocketHandler;
+import com.kosta.darfin.dto.fund.StockSummaryDTO;
+import com.kosta.darfin.websocket.StompSubscriptionTracker;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.web.socket.WebSocketSession;
 
-import javax.annotation.PostConstruct;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -19,11 +21,12 @@ public class StockRankBroadcastScheduler {
 
     private final StockRankService stockRankService;
     private final MarketOverviewService marketOverviewService;
-    private final StockWebSocketHandler stockWebSocketHandler;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final SimpMessagingTemplate simpMessagingTemplate;
+    private final StompSubscriptionTracker subscriptionTracker;
+    private final KisRealtimeClient kisRealtimeClient;
 
     // 마지막으로 브로드캐스트한 payload 캐시 (신규 접속자에게 즉시 전송용)
-    private volatile String lastPayload;
+    private volatile Map<String, Object> lastPayload;
 
     // 투자자 동향·업종 순위 캐시 — 60초마다 갱신, RANK 브로드캐스트에 포함 (KIS rate limit 고려)
     private volatile List<Map<String, Object>> cachedInvestorSentiment;
@@ -32,37 +35,56 @@ public class StockRankBroadcastScheduler {
 
     public StockRankBroadcastScheduler(StockRankService stockRankService,
                                        MarketOverviewService marketOverviewService,
-                                       StockWebSocketHandler stockWebSocketHandler) {
+                                       SimpMessagingTemplate simpMessagingTemplate,
+                                       StompSubscriptionTracker subscriptionTracker,
+                                       KisRealtimeClient kisRealtimeClient) {
         this.stockRankService = stockRankService;
         this.marketOverviewService = marketOverviewService;
-        this.stockWebSocketHandler = stockWebSocketHandler;
-    }
-
-    @PostConstruct
-    public void init() {
-        // 클라이언트 연결 시 캐시된 최신 랭크 데이터를 즉시 전송
-        stockWebSocketHandler.setOnConnectCallback(this::sendCurrentRankTo);
+        this.simpMessagingTemplate = simpMessagingTemplate;
+        this.subscriptionTracker = subscriptionTracker;
+        this.kisRealtimeClient = kisRealtimeClient;
     }
 
     /**
-     * 10초마다 랭크 데이터를 갱신해서 연결된 모든 클라이언트에 브로드캐스트.
+     * 10초마다 랭크 데이터를 갱신해서 /topic/rank 로 브로드캐스트.
      * 연결된 클라이언트가 없으면 KIS API 호출 자체를 생략한다.
-     * syncSubscriptions 는 별도 스케줄에서 실행 — 여기서는 REST 호출만.
+     * 갱신 후, 4개 탭 종목 + 현재 /topic/price/{code} 구독 종목(관심종목 등)을 합쳐
+     * KIS 실시간 WebSocket 구독을 동기화한다.
      */
     @Scheduled(fixedDelay = 10000)
     public void broadcastRankData() {
-        if (!stockWebSocketHandler.hasActiveSessions()) {
+        if (!subscriptionTracker.hasActiveSessions()) {
             return;
         }
 
         try {
-            String payload = buildRankPayload();
+            StockRankService.AllRankResult ranks = stockRankService.getAllRanks();
+
+            Map<String, Object> payload = buildRankPayload(ranks);
             lastPayload = payload;
-            stockWebSocketHandler.broadcast(payload);
+            simpMessagingTemplate.convertAndSend("/topic/rank", payload);
             log.info("랭크 브로드캐스트 완료");
+
+            syncRealtimeSubscriptions(ranks);
         } catch (Exception e) {
             log.error("랭크 브로드캐스트 실패", e);
         }
+    }
+
+    /** 순위표 4탭 종목 + 관심종목 등 /topic/price 구독 종목을 합쳐 KIS 실시간 구독을 갱신한다. */
+    private void syncRealtimeSubscriptions(StockRankService.AllRankResult ranks) {
+        Set<String> targetCodes = new HashSet<>();
+        collectCodes(targetCodes, ranks.getTradeValue());
+        collectCodes(targetCodes, ranks.getVolume());
+        collectCodes(targetCodes, ranks.getTopGainers());
+        collectCodes(targetCodes, ranks.getTopLosers());
+        targetCodes.addAll(subscriptionTracker.getSubscribedPriceCodes());
+
+        kisRealtimeClient.syncSubscriptions(targetCodes);
+    }
+
+    private void collectCodes(Set<String> target, List<StockSummaryDTO> stocks) {
+        target.addAll(stocks.stream().map(StockSummaryDTO::getCode).collect(Collectors.toSet()));
     }
 
     /**
@@ -85,35 +107,24 @@ public class StockRankBroadcastScheduler {
         }
     }
 
-    // rank 코드 대량 구독 제거 — KIS WebSocket 구독 한도(OPSP0008) 방지.
-    // 사용자가 상세 페이지 진입 시 addDetailCode()로만 동적 구독한다.
-
-    private void sendCurrentRankTo(WebSocketSession session) {
-        // 캐시가 있을 때만 즉시 전송.
-        // 캐시가 없으면(앱 시작 직후) broadcastRankData()와 동시에 KIS API를 호출해 EGW00201 발생하므로
-        // 여기서는 API를 직접 호출하지 않고 스케줄러 브로드캐스트(최대 10초)를 기다린다.
-        if (lastPayload != null) {
-            stockWebSocketHandler.sendTo(session, lastPayload);
-        }
+    /** /topic/rank 신규 구독자에게 캐시된 최신 랭크를 즉시 전송 (StompSubscriptionTracker가 호출). */
+    public Map<String, Object> getLastPayload() {
+        return lastPayload;
     }
 
-    private String buildRankPayload() throws Exception {
-        // API 4번 → 2번으로 감소 (fetchVolumeRank("0") 중복 3회 제거)
-        StockRankService.AllRankResult ranks = stockRankService.getAllRanks();
-
+    private Map<String, Object> buildRankPayload(StockRankService.AllRankResult ranks) {
         Map<String, Object> payload = new HashMap<>();
-        payload.put("type", "RANK");
-        payload.put("marketOverview", getMarketOverviewOrNull());
         payload.put("tradeValue", ranks.getTradeValue());
         payload.put("volume", ranks.getVolume());
         payload.put("topGainers", ranks.getTopGainers());
         payload.put("topLosers", ranks.getTopLosers());
+        payload.put("marketOverview", getMarketOverviewOrNull());
         payload.put("timestamp", System.currentTimeMillis());
         // 60초마다 갱신되는 캐시 — 없으면 포함하지 않음 (프론트가 초기 REST 응답 유지)
         if (cachedInvestorSentiment != null) payload.put("investorSentiment", cachedInvestorSentiment);
         if (cachedIndustries != null) payload.put("industries", cachedIndustries);
 
-        return objectMapper.writeValueAsString(payload);
+        return payload;
     }
 
     private MarketOverviewDTO getMarketOverviewOrNull() {

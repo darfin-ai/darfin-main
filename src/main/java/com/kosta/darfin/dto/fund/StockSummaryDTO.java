@@ -15,6 +15,7 @@ public class StockSummaryDTO {
     private String name;
     private Long price;
     private BigDecimal pct;
-    private Long value;
+    private Long value;   // 거래대금 — 억원 단위
+    private Long volume;  // 거래량 — 주 단위
     private String logoUrl;
 }

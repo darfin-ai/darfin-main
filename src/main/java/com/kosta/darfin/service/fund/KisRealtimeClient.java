@@ -2,12 +2,13 @@ package com.kosta.darfin.service.fund;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.kosta.darfin.websocket.StockWebSocketHandler;
+import com.kosta.darfin.dto.fund.StockTickDTO;
 import lombok.extern.slf4j.Slf4j;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
@@ -40,9 +41,12 @@ public class KisRealtimeClient {
     @Value("${kis.real.app-secret}")
     private String appSecret;
 
+    @Value("${kis.realtime.max-subscriptions:400}")
+    private int maxSubscriptions;
+
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private final StockWebSocketHandler stockWebSocketHandler;
+    private final SimpMessagingTemplate simpMessagingTemplate;
 
     private WebSocketClient client;
     private String approvalKey;
@@ -56,8 +60,15 @@ public class KisRealtimeClient {
     // OPSP0008 수신 시 현재 syncSubscriptions 루프를 조기 종료시키는 플래그
     private final AtomicBoolean subscriptionLimitHit = new AtomicBoolean(false);
 
-    public KisRealtimeClient(StockWebSocketHandler stockWebSocketHandler) {
-        this.stockWebSocketHandler = stockWebSocketHandler;
+    // 종목별 마지막 체결 틱 캐시 — /topic/price/{code} 신규 구독자에게 즉시 전송하는 데 사용
+    private final ConcurrentHashMap<String, StockTickDTO> lastTickCache = new ConcurrentHashMap<>();
+
+    public KisRealtimeClient(SimpMessagingTemplate simpMessagingTemplate) {
+        this.simpMessagingTemplate = simpMessagingTemplate;
+    }
+
+    public StockTickDTO getLastTick(String code) {
+        return lastTickCache.get(code);
     }
 
     @PostConstruct
@@ -267,11 +278,13 @@ public class KisRealtimeClient {
     }
 
     /**
-     * KIS 실시간 체결 데이터 파싱 후 브라우저 클라이언트에 브로드캐스트.
+     * KIS 실시간 체결 데이터 파싱 후 STOMP 토픽으로 브로드캐스트.
      * 포맷: {암호화여부}|{tr_id}|{건수}|{필드1}^{필드2}^...
      *
      * H0STCNT0 주요 필드 순서 (0-based):
-     *  0: 종목코드, 1: 체결시간, 2: 현재가, 3: 전일대비부호, 4: 전일대비, 5: 등락율
+     *  0: 종목코드, 1: 체결시간, 2: 현재가, 3: 전일대비부호, 4: 전일대비, 5: 등락율,
+     *  6: 가중평균주식가격, 7: 시가, 8: 고가, 9: 저가, 10: 매도호가1, 11: 매수호가1,
+     *  12: 체결거래량, 13: 누적거래량(ACML_VOL), 14: 누적거래대금(ACML_TR_PBMN)
      */
     private void handleRealtimeData(String message) {
         String[] parts = message.split("\\|");
@@ -287,30 +300,28 @@ public class KisRealtimeClient {
                 String code    = fields[0];
                 long price     = Long.parseLong(fields[2]);
                 double pct     = Double.parseDouble(fields[5]);
-                long quantity  = fields.length > 9 ? Long.parseLong(fields[9]) : 0L;
+                long quantity  = fields.length > 12 ? Long.parseLong(fields[12]) : 0L;
+                long cumVolume = fields.length > 13 ? Long.parseLong(fields[13]) : 0L;
+                // StockRankService.toDto()와 동일한 환산(원 → 억원)으로 REST 스냅샷과 단위를 맞춘다.
+                long cumTradeValueEok = fields.length > 14 ? Long.parseLong(fields[14]) / 1_000_000_000L : 0L;
                 String rawTime = fields.length > 1 ? fields[1] : "";  // HHMMSS
                 String time    = rawTime.length() == 6
                         ? rawTime.substring(0, 2) + ":" + rawTime.substring(2, 4) + ":" + rawTime.substring(4, 6)
                         : rawTime;
 
-                // 관심종목 목록 전체 브로드캐스트 (PRICE)
-                Map<String, Object> priceData = new HashMap<>();
-                priceData.put("type", "PRICE");
-                priceData.put("code", code);
-                priceData.put("price", price);
-                priceData.put("pct", pct);
-                stockWebSocketHandler.broadcast(objectMapper.writeValueAsString(priceData));
+                StockTickDTO tick = new StockTickDTO(code, price, pct, cumVolume, cumTradeValueEok, time);
+                lastTickCache.put(code, tick);
+                simpMessagingTemplate.convertAndSend("/topic/price/" + code, tick);
 
                 // 상세 페이지 구독자에게만 EXECUTION 전송
                 if (detailCodes.contains(code)) {
                     Map<String, Object> execData = new HashMap<>();
-                    execData.put("type", "EXECUTION");
                     execData.put("code", code);
                     execData.put("price", price);
                     execData.put("quantity", quantity);
                     execData.put("changeRate", pct);
                     execData.put("time", time);
-                    stockWebSocketHandler.sendToDetailSubscribers(code, objectMapper.writeValueAsString(execData));
+                    simpMessagingTemplate.convertAndSend("/topic/detail/" + code + "/execution", execData);
                 }
             } catch (Exception e) {
                 log.error("실시간 체결 데이터 파싱 실패: {}", message, e);
@@ -341,20 +352,16 @@ public class KisRealtimeClient {
                 }
 
                 Map<String, Object> obData = new HashMap<>();
-                obData.put("type", "ORDERBOOK");
                 obData.put("code", code);
                 obData.put("asks", asks);
                 obData.put("bids", bids);
 
-                stockWebSocketHandler.sendToDetailSubscribers(code, objectMapper.writeValueAsString(obData));
+                simpMessagingTemplate.convertAndSend("/topic/detail/" + code + "/orderbook", obData);
             } catch (Exception e) {
                 log.error("실시간 호가 데이터 파싱 실패: {}", message, e);
             }
         }
     }
-
-    // KIS WebSocket 동시 구독 한도 (실전 투자 기준)
-    private static final int MAX_SUBSCRIPTIONS = 40;
 
     /** 상세 페이지 진입 시 호출 — H0STCNT0(체결) + H0STASP0(호가) 동시 구독 */
     public void addDetailCode(String stockCode) {
@@ -401,9 +408,9 @@ public class KisRealtimeClient {
         Set<String> combined = new HashSet<>(targetCodes);
         combined.addAll(detailCodes);
 
-        // 한도 초과 방지: 상위 MAX_SUBSCRIPTIONS개만 유지
+        // 한도 초과 방지: 상위 maxSubscriptions개만 유지
         Set<String> limited = combined.stream()
-                .limit(MAX_SUBSCRIPTIONS)
+                .limit(maxSubscriptions)
                 .collect(Collectors.toSet());
 
         if (!isConnected()) {
@@ -439,7 +446,7 @@ public class KisRealtimeClient {
 
         if (subscribed > 0 || !toUnsubscribe.isEmpty()) {
             log.info("구독 동기화: +{}개 -{}개 (현재 {}개 / 한도 {}개)",
-                    subscribed, toUnsubscribe.size(), subscribedCodes.size(), MAX_SUBSCRIPTIONS);
+                    subscribed, toUnsubscribe.size(), subscribedCodes.size(), maxSubscriptions);
         }
     }
 

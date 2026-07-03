@@ -151,6 +151,7 @@ public class StockRankService {
                 item.getCurrentPrice(),
                 pct,
                 valueInEok,
+                item.getVolume(),
                 logoUrl
         );
     }
