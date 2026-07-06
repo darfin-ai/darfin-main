@@ -125,16 +125,14 @@ public class CompanyAnalysisService {
         Object overview = currentRceptNo != null ? overviewJson(currentRceptNo) : null;
         List<RecentFilingResponse> recentFilings = recentFilings(corpCode);
 
-        if (overview == null) {
-            // recentFilings는 1~3단계(수집/파싱/diff)만 끝나도 채워지므로
-            // overview 완료 여부와 무관하다 — "filing은 있지만 아직 LLM
-            // 처리 전" 상태를 놓치지 않으려면 overview 단독으로 판단해야
-            // 한다(diff조차 안 된 상태라도 무해 — 워커가 처리할 filing이
-            // 없으면 job은 그냥 즉시 done으로 끝남).
-            // 아직 파이프라인이 이 회사를 처리하지 않음 — LLM 처리 대기열에
-            // 최우선순위(on_demand)로 올려서, 다음 워커 실행 때 다른 예약
-            // 작업보다 먼저 처리되게 한다. Python 파이프라인이 소유하는
-            // 테이블이라 JdbcTemplate로 직접 INSERT만 한다(JPA 엔티티 없음).
+        if (!isAiInsightsReady(overview)) {
+            // overview 자체가 없거나(파이프라인이 이 회사를 아예 처리 안 함),
+            // 있어도 aiInsightsReady=false(결정론적 패널만 채워지고 findings/
+            // risks/insight 같은 LLM 산출물은 아직) — 두 경우 다 LLM 처리
+            // 대기열에 최우선순위(on_demand)로 올려서, 다음 워커 실행 때
+            // 다른 예약 작업보다 먼저 처리되게 한다. Python 파이프라인이
+            // 소유하는 테이블이라 JdbcTemplate로 직접 INSERT만 한다(JPA
+            // 엔티티 없음).
             enqueueOnDemandJob(corpCode);
         }
 
@@ -145,7 +143,7 @@ public class CompanyAnalysisService {
                 .findings(currentRceptNo != null ? findings(currentRceptNo) : List.of())
                 .diffs(currentRceptNo != null ? diffs(currentRceptNo) : List.of())
                 .profile(deriveProfile(overview))
-                .strategyShifts(List.of())
+                .strategyShifts(strategyShifts(overview))
                 .recentFilings(recentFilings)
                 .overview(overview)
                 .build();
@@ -226,7 +224,12 @@ public class CompanyAnalysisService {
     }
 
     /**
-     * 연결(is_consolidated=1) 기준, concept(없으면 account_nm)별로 묶는다.
+     * 연결(is_consolidated=1) 기준, account_nm별로 묶는다. concept(=DART
+     * account_id)은 같은 계정이라도 보고서 종류/연도에 따라 dart_* 확장 태그와
+     * ifrs-full_* 표준 태그를 오가거나 아예 비어(표준계정코드 미사용) 있어서
+     * 시계열 묶음 키로 쓰면 한 계정이 여러 조각으로 쪼개진다(자산총계처럼
+     * 항상 같은 표준 concept로 태깅되는 상위 합계 항목만 안 쪼개짐). account_nm은
+     * metrics.py에서 이미 strip()되어 있어 안정적인 키다.
      * 손익/현금흐름은 period_qualifier='3개월'(분기 단일값) 우선, 없으면(=재무
      * 상태표류, 시점 수치) NULL 행을 사용 — 누적치와 섞지 않는다.
      */
@@ -234,19 +237,24 @@ public class CompanyAnalysisService {
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
                 "SELECT m.concept, m.account_nm, m.amount, m.bsns_year, m.reprt_code, m.period_qualifier "
                         + "FROM metrics m WHERE m.corp_code = ? AND m.is_consolidated = 1 "
-                        + "AND (m.period_qualifier = '3개월' OR m.period_qualifier IS NULL)",
+                        + "AND (m.period_qualifier = '3개월' OR m.period_qualifier IS NULL) "
+                        + "ORDER BY m.bsns_year, FIELD(m.reprt_code, '11013', '11012', '11014', '11011')",
                 corpCode
         );
         Map<String, List<Map<String, Object>>> byKey = rows.stream()
-                .collect(Collectors.groupingBy(r ->
-                        r.get("concept") != null ? (String) r.get("concept") : (String) r.get("account_nm"),
+                .collect(Collectors.groupingBy(r -> (String) r.get("account_nm"),
                         LinkedHashMap::new, Collectors.toList()));
 
         List<FinancialMetricResponse> result = new ArrayList<>();
         for (Map.Entry<String, List<Map<String, Object>>> e : byKey.entrySet()) {
             List<Map<String, Object>> group = e.getValue();
-            String label = (String) group.get(0).get("account_nm");
-            String concept = (String) group.get(0).get("concept");
+            String label = e.getKey();
+            // 태깅이 기간별로 바뀌므로 가장 최근 필딩이 쓴 concept를 대표값으로 노출한다.
+            String concept = group.stream()
+                    .map(r -> (String) r.get("concept"))
+                    .filter(Objects::nonNull)
+                    .reduce((first, last) -> last)
+                    .orElse(null);
             List<FinancialMetricResponse.SeriesPoint> series = group.stream()
                     .map(r -> FinancialMetricResponse.SeriesPoint.builder()
                             .quarter(quarterLabel((String) r.get("bsns_year"), (String) r.get("reprt_code")))
@@ -332,6 +340,23 @@ public class CompanyAnalysisService {
     }
 
     /**
+     * overview가 없거나(파이프라인 미처리), 있어도 aiInsightsReady가
+     * false(1단계 결정론적 패널만 채워지고 findings/risks/insight 등 LLM
+     * 산출물은 아직)면 false. 필드 자체가 없는 구버전 행(이번 세션 초기에
+     * 원자적으로 완성된 삼성전자/SK하이닉스 등)은 이미 완료된 것으로
+     * 간주(하위 호환) — dart_pipeline.db: filings_for_ai_insights()와
+     * 동일한 규칙.
+     */
+    @SuppressWarnings("unchecked")
+    private boolean isAiInsightsReady(Object overview) {
+        if (!(overview instanceof Map)) {
+            return false;
+        }
+        Object flag = ((Map<String, Object>) overview).get("aiInsightsReady");
+        return !Boolean.FALSE.equals(flag);
+    }
+
+    /**
      * company_overview에서 최소한으로 파생 — 파이프라인이 아직 profile 전용
      * 필드를 만들지 않아서(알려진 한계). governanceNotes는 생성 로직이 없어 빈 문자열.
      */
@@ -363,6 +388,21 @@ public class CompanyAnalysisService {
                 .shareStructure(shareStructure)
                 .governanceNotes("")
                 .build();
+    }
+
+    /**
+     * company_overview의 strategyShifts는 filing 단위가 아니라 회사 전체
+     * 역사를 한 번에 보고 계산돼(Python: strategy_shifts_ingest.py) 최신
+     * filing의 overview_json에만 patch돼 있다. 아직 계산 전(필드 없음)이면
+     * 빈 리스트 — 프론트는 이 경우 기존 "사업의 내용" 카드로 폴백한다.
+     */
+    @SuppressWarnings("unchecked")
+    private List<Object> strategyShifts(Object overview) {
+        if (!(overview instanceof Map)) {
+            return List.of();
+        }
+        Object shifts = ((Map<String, Object>) overview).get("strategyShifts");
+        return shifts instanceof List ? (List<Object>) shifts : List.of();
     }
 
     private Object parseJson(String json) {
