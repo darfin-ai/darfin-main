@@ -429,8 +429,8 @@ public class PaperTradingService {
         return fundsRepository.findByUser_Id(user.getId())
                 .orElseGet(() -> fundsRepository.save(Funds.builder()
                         .user(user)
-                        .initialAmount(DEFAULT_INITIAL_AMOUNT)
-                        .cashBalance(DEFAULT_INITIAL_AMOUNT)
+                        .initialAmount(Funds.DEFAULT_INITIAL_AMOUNT)
+                        .cashBalance(Funds.DEFAULT_INITIAL_AMOUNT)
                         .startDate(LocalDate.now())
                         .updatedAt(LocalDateTime.now())
                         .build()));
