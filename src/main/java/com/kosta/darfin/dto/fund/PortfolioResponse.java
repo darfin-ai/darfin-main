@@ -53,7 +53,8 @@ public class PortfolioResponse {
                                 t.getQuantity(),
                                 t.getPrice(),
                                 t.getTradedAt().toInstant(ZoneOffset.ofHours(9)).toEpochMilli(),
-                                t.getRealizedPnl()))
+                                t.getRealizedPnl(),
+                                t.getHoldDays()))
                         .collect(Collectors.toList())
         );
     }
@@ -135,5 +136,6 @@ public class PortfolioResponse {
         private Long price;
         private Long ts;
         private Long pnl;
+        private Integer holdDays;
     }
 }

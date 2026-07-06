@@ -371,6 +371,7 @@ public class PaperTradingService {
                 .quantity(req.getQuantity())
                 .totalAmount(total)
                 .realizedPnl(realizedPnl)
+                .holdDays(fifo.holdDays)
                 .tradedAt(trade.getTradedAt())
                 .build();
     }

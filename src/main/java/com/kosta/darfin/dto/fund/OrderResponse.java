@@ -17,5 +17,6 @@ public class OrderResponse {
     private Integer quantity;
     private Long   totalAmount;
     private Long   realizedPnl; // 매도 시만 값 존재
+    private Integer holdDays;   // 매도 시 보유일수
     private LocalDateTime tradedAt;
 }
