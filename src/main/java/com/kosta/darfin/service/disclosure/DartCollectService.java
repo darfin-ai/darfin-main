@@ -33,7 +33,7 @@ public class DartCollectService {
     private static final Logger log = LoggerFactory.getLogger(DartCollectService.class);
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
-    @Value("${llm.service.base-url:http://127.0.0.1:8001}")
+    @Value("${llm.service.base-url:http://127.0.0.1:8002}")
     private String llmServiceBaseUrl;
 
     private final RestTemplate restTemplate;

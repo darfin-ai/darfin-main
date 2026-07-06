@@ -29,6 +29,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -40,7 +41,8 @@ import java.util.stream.Collectors;
 @Transactional(readOnly = true)
 public class PaperTradingService {
 
-    private static final long DEFAULT_INITIAL_AMOUNT = 10_000_000L;
+     private static final int DAILY_CHARGE_LIMIT = 3;
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final UsersRepository     usersRepository;
     private final FundsRepository     fundsRepository;
@@ -144,6 +146,13 @@ public class PaperTradingService {
     public PortfolioResponse charge(String email, long amount) {
         Users user = findUser(email);
         Funds funds = getOrCreateFunds(user);
+
+        if (amount <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "충전 금액은 0원보다 커야 합니다.");
+        }
+        if (getTodayChargeCount(user) >= DAILY_CHARGE_LIMIT) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "자금 충전은 하루 3회까지만 가능합니다.");
+        }
 
         funds.updateCashBalance(funds.getCashBalance() + amount);
 
@@ -371,6 +380,7 @@ public class PaperTradingService {
                 .quantity(req.getQuantity())
                 .totalAmount(total)
                 .realizedPnl(realizedPnl)
+                .holdDays(fifo.holdDays)
                 .tradedAt(trade.getTradedAt())
                 .build();
     }
@@ -383,6 +393,7 @@ public class PaperTradingService {
         Funds funds = getOrCreateFunds(user);
         List<Holdings> holdings = holdingsRepository.findByUser_IdOrderByUpdatedAtDesc(user.getId());
         List<Trades> trades = tradesRepository.findByUser_IdOrderByTradedAtDesc(user.getId());
+        List<FundHistory> fundHistory = fundHistoryRepository.findByUser_IdOrderByCreatedAtDesc(user.getId());
         Map<String, Long> currentPrices = holdings.stream()
                 .map(h -> {
                     String code = h.getStockInfo().getStockCode();
@@ -402,15 +413,23 @@ public class PaperTradingService {
                         ),
                         (a, b) -> a
                 ));
-        return PortfolioResponse.from(funds, holdings, trades, currentPrices, stockNames);
+        return PortfolioResponse.from(funds, holdings, trades, fundHistory, currentPrices, stockNames);
+    }
+
+    private long getTodayChargeCount(Users user) {
+        LocalDate today = LocalDate.now(KST);
+        LocalDateTime start = today.atStartOfDay();
+        LocalDateTime end = today.plusDays(1).atStartOfDay();
+        return fundHistoryRepository.countByUser_IdAndTypeAndCreatedAtBetween(
+                user.getId(), "CHARGE", start, end);
     }
 
     private Funds getOrCreateFunds(Users user) {
         return fundsRepository.findByUser_Id(user.getId())
                 .orElseGet(() -> fundsRepository.save(Funds.builder()
                         .user(user)
-                        .initialAmount(DEFAULT_INITIAL_AMOUNT)
-                        .cashBalance(DEFAULT_INITIAL_AMOUNT)
+                        .initialAmount(Funds.DEFAULT_INITIAL_AMOUNT)
+                        .cashBalance(Funds.DEFAULT_INITIAL_AMOUNT)
                         .startDate(LocalDate.now())
                         .updatedAt(LocalDateTime.now())
                         .build()));

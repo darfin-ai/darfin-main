@@ -23,6 +23,7 @@ import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -135,12 +136,22 @@ public class StockController {
                 .filter(s -> !s.isEmpty())
                 .collect(Collectors.toList());
 
-        List<StockSummaryDTO> cached = watchlistBroadcastScheduler.getCached(codeList);
-        if (!cached.isEmpty()) return cached;
+        Map<String, StockSummaryDTO> cachedByCode = watchlistBroadcastScheduler.getCached(codeList).stream()
+                .collect(Collectors.toMap(StockSummaryDTO::getCode, dto -> dto, (a, b) -> a));
+        if (cachedByCode.size() == codeList.size()) {
+            return codeList.stream()
+                    .map(cachedByCode::get)
+                    .collect(Collectors.toList());
+        }
 
         // 캐시 미스 시 순차 조회 (rate limit은 KisApiClient 내부에서 처리)
         List<StockSummaryDTO> results = new ArrayList<>();
         for (String code : codeList) {
+            StockSummaryDTO cached = cachedByCode.get(code);
+            if (cached != null) {
+                results.add(cached);
+                continue;
+            }
             try {
                 KisApiClient.StockBasicInfo info = kisApiClient.fetchStockBasicInfo(code);
                 StockSummaryDTO dto = toSummaryDto(code, info);

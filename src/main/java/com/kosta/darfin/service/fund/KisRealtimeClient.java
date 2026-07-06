@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kosta.darfin.dto.fund.StockTickDTO;
 import lombok.extern.slf4j.Slf4j;
 import org.java_websocket.client.WebSocketClient;
+import org.java_websocket.exceptions.WebsocketNotConnectedException;
 import org.java_websocket.handshake.ServerHandshake;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
@@ -45,6 +46,9 @@ public class KisRealtimeClient {
     @Value("${kis.realtime.max-subscriptions:400}")
     private int maxSubscriptions;
 
+    @Value("${kis.realtime.enabled:true}")
+    private boolean realtimeEnabled;
+
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final SimpMessagingTemplate simpMessagingTemplate;
@@ -60,6 +64,8 @@ public class KisRealtimeClient {
     private final Set<String> aspSubscribedCodes = ConcurrentHashMap.newKeySet();
     // OPSP0008 수신 시 현재 syncSubscriptions 루프를 조기 종료시키는 플래그
     private final AtomicBoolean subscriptionLimitHit = new AtomicBoolean(false);
+    // appkey 중복 사용 등 현재 프로세스에서 재시도해도 회복되지 않는 상태면 실시간 WS만 중단한다
+    private final AtomicBoolean realtimeUnavailable = new AtomicBoolean(false);
 
     // 종목별 마지막 체결 틱 캐시 — /topic/price/{code} 신규 구독자에게 즉시 전송하는 데 사용
     private final ConcurrentHashMap<String, StockTickDTO> lastTickCache = new ConcurrentHashMap<>();
@@ -81,6 +87,10 @@ public class KisRealtimeClient {
 
     public void addPriceCode(String stockCode) {
         directPriceCodes.add(stockCode);
+        if (!canUseRealtime()) {
+            log.debug("가격 구독 보류: {} (KIS 실시간 WebSocket 비활성)", stockCode);
+            return;
+        }
         if (isConnected() && subscribedCodes.add(stockCode)) {
             subscribe("H0STCNT0", stockCode);
             log.info("가격 구독 추가: {}", stockCode);
@@ -92,6 +102,7 @@ public class KisRealtimeClient {
 
     public void removePriceCode(String stockCode) {
         directPriceCodes.remove(stockCode);
+        if (!canUseRealtime()) return;
         if (!detailCodes.contains(stockCode) && subscribedCodes.remove(stockCode) && isConnected()) {
             unsubscribe("H0STCNT0", stockCode);
             log.info("가격 구독 해제: {}", stockCode);
@@ -112,6 +123,11 @@ public class KisRealtimeClient {
 
     @PostConstruct
     public void init() {
+        if (!realtimeEnabled) {
+            realtimeUnavailable.set(true);
+            log.info("KIS 실시간 WebSocket 비활성화됨: kis.realtime.enabled=false");
+            return;
+        }
         try {
             connect();
         } catch (Exception e) {
@@ -122,10 +138,11 @@ public class KisRealtimeClient {
     }
 
     private void scheduleReconnect() {
-        if (shuttingDown) return;
+        if (!canUseRealtime() || shuttingDown) return;
         if (!reconnectScheduled.compareAndSet(false, true)) return; // 중복 예약 방지
         reconnectExecutor.schedule(() -> {
             reconnectScheduled.set(false);
+            if (!canUseRealtime() || shuttingDown) return;
             try {
                 connect();
             } catch (Exception e) {
@@ -181,6 +198,10 @@ public class KisRealtimeClient {
      * KIS WebSocket 연결
      */
     public synchronized void connect() {
+        if (!canUseRealtime()) {
+            log.debug("KIS WebSocket 연결 생략: 실시간 기능 비활성 상태");
+            return;
+        }
 
         if (client != null && client.isOpen()) {
             log.info("이미 연결되어 있습니다.");
@@ -209,11 +230,13 @@ public class KisRealtimeClient {
                     // 재연결 시 H0STCNT0 복원
                     log.info("재구독 시작: H0STCNT0={}개 H0STASP0={}개", subscribedCodes.size(), aspSubscribedCodes.size());
                     for (String code : subscribedCodes) {
+                        if (!canUseRealtime() || !isConnected()) break;
                         subscribe("H0STCNT0", code);
                         sleepQuietly(100);
                     }
                     // 재연결 시 H0STASP0(호가) 복원
                     for (String code : aspSubscribedCodes) {
+                        if (!canUseRealtime() || !isConnected()) break;
                         subscribe("H0STASP0", code);
                         sleepQuietly(100);
                     }
@@ -231,7 +254,7 @@ public class KisRealtimeClient {
                     log.warn("===== KIS CLOSED =====");
                     log.warn("code={} reason={} remote={}", code, reason, remote);
                     // 장 마감/점검/네트워크 단절 — 자동 재연결 (성공 시 onOpen에서 기존 구독 복원)
-                    scheduleReconnect();
+                    if (canUseRealtime()) scheduleReconnect();
 
                 }
 
@@ -261,7 +284,7 @@ public class KisRealtimeClient {
      */
     public void send(String message) {
 
-        if (client != null && client.isOpen()) {
+        if (canUseRealtime() && client != null && client.isOpen()) {
 
             client.send(message);
 
@@ -276,7 +299,7 @@ public class KisRealtimeClient {
     }
 
     public boolean isConnected() {
-        return client != null && client.isOpen();
+        return canUseRealtime() && client != null && client.isOpen();
     }
 
     public void disconnect() {
@@ -313,7 +336,7 @@ public class KisRealtimeClient {
             String trId = node.path("header").path("tr_id").asText();
 
             if ("PINGPONG".equals(trId)) {
-                client.send(json);
+                if (isConnected()) client.send(json);
                 log.debug("PINGPONG 응답 전송");
                 return;
             }
@@ -333,6 +356,9 @@ public class KisRealtimeClient {
                     subscribedCodes.remove(trKey);
                     subscriptionLimitHit.set(true);
                     log.warn("KIS 구독 한도 도달 — {} 제거 (남은 구독: {})", trKey, subscribedCodes.size());
+                }
+                if ("OPSP8996".equals(msgCd) || msg1.contains("ALREADY IN USE appkey")) {
+                    disableRealtime("KIS 실시간 WebSocket appkey가 이미 다른 연결에서 사용 중입니다.");
                 }
             }
         } catch (Exception e) {
@@ -430,6 +456,10 @@ public class KisRealtimeClient {
     /** 상세 페이지 진입 시 호출 — H0STCNT0(체결) + H0STASP0(호가) 동시 구독 */
     public void addDetailCode(String stockCode) {
         detailCodes.add(stockCode);
+        if (!canUseRealtime()) {
+            log.debug("상세 구독 보류: {} (KIS 실시간 WebSocket 비활성)", stockCode);
+            return;
+        }
         if (isConnected()) {
             if (!subscribedCodes.contains(stockCode)) {
                 subscribe("H0STCNT0", stockCode);
@@ -446,6 +476,7 @@ public class KisRealtimeClient {
     /** 상세 페이지 이탈 시 호출 — H0STCNT0 + H0STASP0 즉시 해제 */
     public void removeDetailCode(String stockCode) {
         detailCodes.remove(stockCode);
+        if (!canUseRealtime()) return;
         if (isConnected()) {
             if (aspSubscribedCodes.remove(stockCode)) {
                 unsubscribe("H0STASP0", stockCode);
@@ -465,6 +496,8 @@ public class KisRealtimeClient {
      * 딜레이 없이 한꺼번에 보내면 서버가 마지막 요청만 처리하고 나머지를 드랍한다.
      */
     public void syncSubscriptions(Set<String> targetCodes) {
+        if (!canUseRealtime()) return;
+
         // 이전 sync에서 남은 한도 플래그 초기화
         subscriptionLimitHit.set(false);
 
@@ -499,7 +532,7 @@ public class KisRealtimeClient {
         int subscribed = 0;
         for (String code : toSubscribe) {
             // OPSP0008 수신 시 즉시 중단 — 나머지는 다음 sync 사이클로 미룸
-            if (subscriptionLimitHit.get()) {
+            if (!canUseRealtime() || !isConnected() || subscriptionLimitHit.get()) {
                 log.warn("구독 한도 도달 — 남은 {} 코드 생략 (다음 sync에서 재시도)", toSubscribe.size() - subscribed);
                 break;
             }
@@ -533,6 +566,11 @@ public class KisRealtimeClient {
 
     private void sendSubscribeMessage(String trId, String code, String trType) {
         try {
+            if (!isConnected()) {
+                log.debug("{} {} 생략: KIS WebSocket 미연결", "1".equals(trType) ? "구독" : "구독해제", code);
+                return;
+            }
+
             Map<String, Object> root = new HashMap<>();
 
             Map<String, String> header = new HashMap<>();
@@ -553,9 +591,22 @@ public class KisRealtimeClient {
 
             client.send(objectMapper.writeValueAsString(root));
             log.debug("{} {} (tr_type={})", "1".equals(trType) ? "구독" : "구독해제", code, trType);
+        } catch (WebsocketNotConnectedException e) {
+            log.debug("{} {} 실패: KIS WebSocket 연결이 이미 종료됨", "1".equals(trType) ? "구독" : "구독해제", code);
         } catch (Exception e) {
-            log.error("sendSubscribeMessage error code={} trType={}", code, trType, e);
+            log.warn("sendSubscribeMessage 실패 code={} trType={}: {}", code, trType, e.getMessage());
         }
+    }
+
+    private boolean canUseRealtime() {
+        return realtimeEnabled && !realtimeUnavailable.get() && !shuttingDown;
+    }
+
+    private void disableRealtime(String reason) {
+        if (!realtimeUnavailable.compareAndSet(false, true)) return;
+        log.warn("{} REST 조회와 일반 백엔드 API는 계속 동작합니다. 다른 실행 중인 서버/프로세스를 종료한 뒤 재시작하면 실시간 연결을 다시 시도합니다.", reason);
+        reconnectScheduled.set(false);
+        disconnect();
     }
 
 }

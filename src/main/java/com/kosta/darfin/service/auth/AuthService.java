@@ -7,9 +7,11 @@ import com.kosta.darfin.dto.auth.SignupRequest;
 import com.kosta.darfin.dto.auth.TokenResponse;
 import com.kosta.darfin.entity.common.RefreshTokens;
 import com.kosta.darfin.entity.common.Users;
+import com.kosta.darfin.entity.fund.Funds;
 import com.kosta.darfin.global.jwt.JwtTokenProvider;
 import com.kosta.darfin.repository.common.RefreshTokensRepository;
 import com.kosta.darfin.repository.common.UsersRepository;
+import com.kosta.darfin.repository.fund.FundsRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -18,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.security.SecureRandom;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -33,6 +36,7 @@ public class AuthService {
 
     private final UsersRepository usersRepository;
     private final RefreshTokensRepository refreshTokensRepository;
+    private final FundsRepository fundsRepository;
     private final JwtTokenProvider jwtTokenProvider;
     private final PasswordEncoder passwordEncoder;
     private final MailService mailService;
@@ -55,18 +59,20 @@ public class AuthService {
                         request.getPhone(),
                         request.getNickname()
                 );
+                createInitialFundsIfAbsent(user);
                 return;
             }
             throw new ResponseStatusException(HttpStatus.CONFLICT, "이미 사용 중인 이메일입니다.");
         }
 
-        usersRepository.save(Users.builder()
+        Users user = usersRepository.save(Users.builder()
                 .email(request.getEmail())
                 .password(passwordEncoder.encode(request.getPassword()))
                 .name(request.getName())
                 .phone(request.getPhone())
                 .nickname(request.getNickname())
                 .build());
+        createInitialFundsIfAbsent(user);
     }
 
     // -------------------------------------------------------------------------
@@ -227,7 +233,22 @@ public class AuthService {
                 .provider(provider)
                 .providerUserId(providerUserId)
                 .build();
-        return usersRepository.save(user);
+        Users saved = usersRepository.save(user);
+        createInitialFundsIfAbsent(saved);
+        return saved;
+    }
+
+    private void createInitialFundsIfAbsent(Users user) {
+        if (fundsRepository.findByUser_Id(user.getId()).isPresent()) {
+            return;
+        }
+        fundsRepository.save(Funds.builder()
+                .user(user)
+                .initialAmount(Funds.DEFAULT_INITIAL_AMOUNT)
+                .cashBalance(Funds.DEFAULT_INITIAL_AMOUNT)
+                .startDate(LocalDate.now())
+                .updatedAt(LocalDateTime.now())
+                .build());
     }
 
     private TokenResponse issueTokens(Users user, String ipAddress, String userAgent) {

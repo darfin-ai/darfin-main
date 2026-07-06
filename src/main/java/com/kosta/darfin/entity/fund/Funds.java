@@ -17,6 +17,8 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @Builder
 public class Funds {
+    public static final long DEFAULT_INITIAL_AMOUNT = 10_000_000L;
+
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long fundId;
 
