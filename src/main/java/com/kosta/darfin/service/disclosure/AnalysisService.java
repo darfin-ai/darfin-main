@@ -57,6 +57,10 @@ public class AnalysisService {
             return AnalysisResult.error("LLM 서비스가 분석 항목을 하나도 반환하지 않았습니다.");
         }
 
+        if (result.isTruncated()) {
+            log.warn("[Gemini 응답 잘림] rceptNo={} — 토큰 한도로 일부 항목만 복구됨(복구된 항목 수={})", rceptNo, rawItems.size());
+        }
+
         
         String riskScaleCode;
         try {

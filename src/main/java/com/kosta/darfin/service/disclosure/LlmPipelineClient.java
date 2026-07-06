@@ -166,6 +166,7 @@ public class LlmPipelineClient {
         return AnalysisResponseDto.ok(
                 items,
                 root.path("droppedCount").asInt(0),
+                root.path("truncated").asBoolean(false),
                 root.path("tokensIn").asInt(0),
                 root.path("tokensOut").asInt(0),
                 0.0,
