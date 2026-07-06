@@ -10,6 +10,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.util.ArrayList;
+import java.util.List;
+
 
 @Service
 public class DartDocumentService {
@@ -40,10 +43,47 @@ public class DartDocumentService {
             if (!success) {
                 return DartDocumentResponseDto.error(root.path("errorMessage").asText("공시 원문 조회 실패"));
             }
-            return DartDocumentResponseDto.ok(root.path("text").asText(""));
+            return DartDocumentResponseDto.ok(root.path("text").asText(""), parseBlocks(root.path("blocks")));
         } catch (Exception e) {
             log.error("공시 원문 조회 실패 rceptNo={}", rceptNo, e);
             return DartDocumentResponseDto.error("공시 원문 조회 실패: " + e.getMessage());
         }
+    }
+
+    /** Python이 내려주는 blocks(JSON 배열)를 DartDocumentResponseDto.Block 목록으로 변환한다. */
+    private List<DartDocumentResponseDto.Block> parseBlocks(JsonNode blocksNode) {
+        List<DartDocumentResponseDto.Block> blocks = new ArrayList<>();
+        if (!blocksNode.isArray()) {
+            return blocks;
+        }
+
+        for (JsonNode node : blocksNode) {
+            DartDocumentResponseDto.Block block = new DartDocumentResponseDto.Block();
+            block.setType(node.path("type").asText(null));
+            block.setText(node.path("text").isMissingNode() ? null : node.path("text").asText(null));
+
+            JsonNode rowsNode = node.path("rows");
+            if (rowsNode.isArray()) {
+                List<List<String>> rows = new ArrayList<>();
+                for (JsonNode rowNode : rowsNode) {
+                    List<String> row = new ArrayList<>();
+                    if (rowNode.isArray()) {
+                        for (JsonNode cellNode : rowNode) {
+                            row.add(cellNode.asText(""));
+                        }
+                    }
+                    rows.add(row);
+                }
+                block.setRows(rows);
+            }
+
+            JsonNode charStartNode = node.path("charStart");
+            JsonNode charEndNode = node.path("charEnd");
+            block.setCharStart(charStartNode.isNull() || charStartNode.isMissingNode() ? null : charStartNode.asInt());
+            block.setCharEnd(charEndNode.isNull() || charEndNode.isMissingNode() ? null : charEndNode.asInt());
+
+            blocks.add(block);
+        }
+        return blocks;
     }
 }
