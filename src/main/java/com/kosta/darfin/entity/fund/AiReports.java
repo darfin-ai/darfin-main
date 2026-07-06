@@ -1,6 +1,8 @@
 package com.kosta.darfin.entity.fund;
 
 import com.kosta.darfin.entity.common.Users;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
@@ -12,6 +14,8 @@ import java.time.LocalDateTime;
 @Table(name = "ai_reports")
 @Getter
 @NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class AiReports {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long reportId;
@@ -32,5 +36,13 @@ public class AiReports {
     @Column(length = 64)
     private String shareToken;
 
-    private LocalDateTime createdAt;
+    @Builder.Default
+    private LocalDateTime createdAt = LocalDateTime.now();
+
+    @PrePersist
+    void prePersist() {
+        if (createdAt == null) {
+            createdAt = LocalDateTime.now();
+        }
+    }
 }
