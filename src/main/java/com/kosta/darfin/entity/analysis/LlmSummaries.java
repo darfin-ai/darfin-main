@@ -6,7 +6,7 @@ import lombok.NoArgsConstructor;
 import javax.persistence.*;
 import java.time.LocalDateTime;
 
-// LlmSummaries.java
+// LlmSummaries.java — ddl.sql §7 llm_summaries와 1:1 (darfin-company-analysis 파이프라인이 적재)
 @Entity
 @Table(name = "llm_summaries")
 @Getter
@@ -29,8 +29,20 @@ public class LlmSummaries {
     @Column(nullable = false, columnDefinition = "TEXT")
     private String content;
 
+    @Column(columnDefinition = "JSON")
+    private String sourceRefs;
+
     @Column(nullable = false, length = 100)
     private String modelUsed;
+
+    private Integer tokensIn;
+
+    private Integer tokensOut;
+
+    @Column(precision = 10, scale = 6)
+    private java.math.BigDecimal costUsd;
+
+    private Integer latencyMs;
 
     @Column(nullable = false)
     private LocalDateTime createdAt;

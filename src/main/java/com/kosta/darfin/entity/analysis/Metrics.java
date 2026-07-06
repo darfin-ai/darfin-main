@@ -6,7 +6,7 @@ import lombok.NoArgsConstructor;
 import javax.persistence.*;
 import java.time.LocalDateTime;
 
-// Metrics.java
+// Metrics.java — ddl.sql §7 metrics와 1:1 (darfin-company-analysis 파이프라인이 적재)
 @Entity
 @Table(name = "metrics")
 @Getter
@@ -25,8 +25,23 @@ public class Metrics {
     @Column(nullable = false, length = 4)
     private String bsnsYear;
 
+    @Column(nullable = false, length = 5)
+    private String reprtCode;
+
+    @Column(length = 300)
+    private String concept;
+
     @Column(nullable = false, length = 200)
     private String accountNm;
+
+    @Column(length = 20)
+    private String statementType;
+
+    @Column(nullable = false)
+    private Boolean isConsolidated;
+
+    @Column(length = 10)
+    private String periodQualifier;
 
     private Long amount;
 
