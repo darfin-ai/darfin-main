@@ -3,6 +3,7 @@ package com.kosta.darfin.entity.fund;
 import com.kosta.darfin.entity.common.Users;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 import javax.persistence.*;
 import java.time.LocalDateTime;
@@ -11,6 +12,7 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "user_trading_stats")
 @Getter
+@Setter
 @NoArgsConstructor
 public class UserTradingStats {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)

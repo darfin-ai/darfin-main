@@ -4,8 +4,10 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kosta.darfin.entity.common.Users;
 import com.kosta.darfin.entity.fund.AiReports;
+import com.kosta.darfin.entity.fund.UserTradingStats;
 import com.kosta.darfin.repository.common.UsersRepository;
 import com.kosta.darfin.repository.fund.AiReportsRepository;
+import com.kosta.darfin.repository.fund.UserTradingStatsRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
@@ -16,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -34,6 +37,7 @@ public class PortfolioAnalysisService {
     private final ObjectMapper objectMapper;
     private final UsersRepository usersRepository;
     private final AiReportsRepository aiReportsRepository;
+    private final UserTradingStatsRepository userTradingStatsRepository;
 
     public Map<String, Object> analyzeAndSave(String email, Map<String, Object> requestBody) {
         Users user = resolveUser(email, requestBody);
@@ -61,12 +65,34 @@ public class PortfolioAnalysisService {
                 .shareToken(UUID.randomUUID().toString().replace("-", ""))
                 .build());
 
+        upsertUserTradingStats(user, metrics);
+
         Map<String, Object> response = new LinkedHashMap<>(pythonResponse);
         response.put("report_id", saved.getReportId());
         response.put("reportId", saved.getReportId());
         response.put("db_error", null);
         response.put("dbError", null);
         return response;
+    }
+
+    private void upsertUserTradingStats(Users user, Map<String, Object> metrics) {
+        Map<String, Object> behavior = asMap(metrics.get("behavior"));
+
+        UserTradingStats stats = userTradingStatsRepository.findByUser_Id(user.getId())
+                .orElseGet(() -> {
+                    UserTradingStats created = new UserTradingStats();
+                    created.setUser(user);
+                    return created;
+                });
+
+        stats.setMonthlyTradeFreq(toDouble(behavior.get("tradesPerMonth")));
+        stats.setAvgHoldDays(toDouble(behavior.get("avgHoldDays")));
+        stats.setStopLossRate(toDouble(behavior.get("stopLossRatio")));
+        stats.setTakeProfitRate(toDouble(behavior.get("takeProfitRatio")));
+        stats.setChaseBuyCount(toInt(behavior.get("chaseBuyCount")));
+        stats.setUpdatedAt(LocalDateTime.now());
+
+        userTradingStatsRepository.save(stats);
     }
 
     public List<Map<String, Object>> listReports(String email, Integer limit, Long requestedUserId) {
@@ -171,6 +197,30 @@ public class PortfolioAnalysisService {
 
     private String asString(Object value) {
         return value == null ? null : String.valueOf(value);
+    }
+
+    private Double toDouble(Object value) {
+        if (value instanceof Number) return ((Number) value).doubleValue();
+        if (value instanceof String && !((String) value).isBlank()) {
+            try {
+                return Double.parseDouble((String) value);
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private Integer toInt(Object value) {
+        if (value instanceof Number) return ((Number) value).intValue();
+        if (value instanceof String && !((String) value).isBlank()) {
+            try {
+                return Integer.parseInt((String) value);
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 
     private Long toLong(Object value) {
