@@ -41,8 +41,7 @@ import java.util.stream.Collectors;
 @Transactional(readOnly = true)
 public class PaperTradingService {
 
-    private static final long DEFAULT_INITIAL_AMOUNT = 10_000_000L;
-    private static final int DAILY_CHARGE_LIMIT = 3;
+     private static final int DAILY_CHARGE_LIMIT = 3;
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final UsersRepository     usersRepository;
