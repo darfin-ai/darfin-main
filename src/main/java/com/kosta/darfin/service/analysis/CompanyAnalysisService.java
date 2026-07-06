@@ -123,6 +123,20 @@ public class CompanyAnalysisService {
 
         String currentRceptNo = currentFiling(corpCode);
         Object overview = currentRceptNo != null ? overviewJson(currentRceptNo) : null;
+        List<RecentFilingResponse> recentFilings = recentFilings(corpCode);
+
+        if (overview == null) {
+            // recentFilings는 1~3단계(수집/파싱/diff)만 끝나도 채워지므로
+            // overview 완료 여부와 무관하다 — "filing은 있지만 아직 LLM
+            // 처리 전" 상태를 놓치지 않으려면 overview 단독으로 판단해야
+            // 한다(diff조차 안 된 상태라도 무해 — 워커가 처리할 filing이
+            // 없으면 job은 그냥 즉시 done으로 끝남).
+            // 아직 파이프라인이 이 회사를 처리하지 않음 — LLM 처리 대기열에
+            // 최우선순위(on_demand)로 올려서, 다음 워커 실행 때 다른 예약
+            // 작업보다 먼저 처리되게 한다. Python 파이프라인이 소유하는
+            // 테이블이라 JdbcTemplate로 직접 INSERT만 한다(JPA 엔티티 없음).
+            enqueueOnDemandJob(corpCode);
+        }
 
         return CompanyDetailResponse.builder()
                 .company(company)
@@ -132,9 +146,30 @@ public class CompanyAnalysisService {
                 .diffs(currentRceptNo != null ? diffs(currentRceptNo) : List.of())
                 .profile(deriveProfile(overview))
                 .strategyShifts(List.of())
-                .recentFilings(recentFilings(corpCode))
+                .recentFilings(recentFilings)
                 .overview(overview)
                 .build();
+    }
+
+    /**
+     * llm_jobs에 이미 pending/running인 job이 있으면 priority=0(on_demand)으로
+     * 승격, 없으면 새로 추가한다. dart_pipeline.db: enqueue_llm_job()과 동일한
+     * "더 급한 쪽으로만 갱신" 로직을 SQL로 재현.
+     */
+    private void enqueueOnDemandJob(String corpCode) {
+        List<Long> existing = jdbcTemplate.queryForList(
+                "SELECT id FROM llm_jobs WHERE corp_code = ? AND status IN ('pending','running')",
+                Long.class, corpCode
+        );
+        if (existing.isEmpty()) {
+            jdbcTemplate.update(
+                    "INSERT INTO llm_jobs (corp_code, priority) VALUES (?, 0)", corpCode
+            );
+        } else {
+            jdbcTemplate.update(
+                    "UPDATE llm_jobs SET priority = 0 WHERE id = ?", existing.get(0)
+            );
+        }
     }
 
     // ── 공통 조회 ────────────────────────────────────────────────────────
