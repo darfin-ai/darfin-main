@@ -39,7 +39,7 @@ public class SummaryService {
     public SummaryResult getOrGenerate(String rceptNo, String corpName, String dartContext) {
         Optional<AiSummaryResult> existing = summaryRepo.findById(rceptNo);
 
-        if (existing.isPresent()) {
+        if (existing.isPresent() && existing.get().getErrorCode() == null) {
             AiSummaryResult summary = existing.get();
             log.info("[DB HIT] rceptNo={}", rceptNo);
             return SummaryResult.hit(

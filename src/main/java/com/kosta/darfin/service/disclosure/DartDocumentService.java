@@ -1,6 +1,7 @@
 package com.kosta.darfin.service.disclosure;
 
 import com.kosta.darfin.dto.disclosure.DartDocumentResponseDto;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -19,7 +20,7 @@ public class DartDocumentService {
 
     private static final Logger log = LoggerFactory.getLogger(DartDocumentService.class);
 
-    @Value("${llm.service.base-url:http://127.0.0.1:8001}")
+    @Value("${llm.service.base-url:http://127.0.0.1:8002}")
     private String llmServiceBaseUrl;
 
     private final RestTemplate restTemplate;
@@ -50,40 +51,15 @@ public class DartDocumentService {
         }
     }
 
-    /** Python이 내려주는 blocks(JSON 배열)를 DartDocumentResponseDto.Block 목록으로 변환한다. */
+    /**
+     * Python이 내려주는 blocks(JSON 배열)를 DartDocumentResponseDto.Block 목록으로 변환한다.
+     * Block.rows가 이제 재귀 구조(row -> cell -> 중첩 Block 목록)라 손으로 한 단계씩
+     * JsonNode를 훑는 대신 Jackson의 재귀 역직렬화(convertValue)에 그대로 맡긴다.
+     */
     private List<DartDocumentResponseDto.Block> parseBlocks(JsonNode blocksNode) {
-        List<DartDocumentResponseDto.Block> blocks = new ArrayList<>();
         if (!blocksNode.isArray()) {
-            return blocks;
+            return new ArrayList<>();
         }
-
-        for (JsonNode node : blocksNode) {
-            DartDocumentResponseDto.Block block = new DartDocumentResponseDto.Block();
-            block.setType(node.path("type").asText(null));
-            block.setText(node.path("text").isMissingNode() ? null : node.path("text").asText(null));
-
-            JsonNode rowsNode = node.path("rows");
-            if (rowsNode.isArray()) {
-                List<List<String>> rows = new ArrayList<>();
-                for (JsonNode rowNode : rowsNode) {
-                    List<String> row = new ArrayList<>();
-                    if (rowNode.isArray()) {
-                        for (JsonNode cellNode : rowNode) {
-                            row.add(cellNode.asText(""));
-                        }
-                    }
-                    rows.add(row);
-                }
-                block.setRows(rows);
-            }
-
-            JsonNode charStartNode = node.path("charStart");
-            JsonNode charEndNode = node.path("charEnd");
-            block.setCharStart(charStartNode.isNull() || charStartNode.isMissingNode() ? null : charStartNode.asInt());
-            block.setCharEnd(charEndNode.isNull() || charEndNode.isMissingNode() ? null : charEndNode.asInt());
-
-            blocks.add(block);
-        }
-        return blocks;
+        return objectMapper.convertValue(blocksNode, new TypeReference<List<DartDocumentResponseDto.Block>>() {});
     }
 }
