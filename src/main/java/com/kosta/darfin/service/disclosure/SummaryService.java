@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.Map;
 import java.util.Optional;
 
@@ -44,7 +45,9 @@ public class SummaryService {
             log.info("[DB HIT] rceptNo={}", rceptNo);
             return SummaryResult.hit(
                     summary.getSummaryText(), summary.getInvestorComment(), summary.getRiskLabel(),
-                    summary.getTokensIn(), summary.getTokensOut(), summary.getCostUsd(), summary.getLatencyMs());
+                    summary.getTokensIn(), summary.getTokensOut(),
+                    summary.getCostUsd() == null ? null : summary.getCostUsd().doubleValue(),
+                    summary.getLatencyMs());
         }
 
         log.info("[DB MISS] LLM 서비스 호출 rceptNo={}", rceptNo);
@@ -90,7 +93,7 @@ public class SummaryService {
         summary.setModelName(resolveModelName(result.getModelName()));
         summary.setTokensIn(result.getTokensIn());
         summary.setTokensOut(result.getTokensOut());
-        summary.setCostUsd(costUsd);
+        summary.setCostUsd(BigDecimal.valueOf(costUsd));
         summary.setLatencyMs((int) result.getLatencyMs());
         summary.setCacheHit(false);
         summary.setCompressedContextChars(dartContext == null ? null : dartContext.length());

@@ -5,6 +5,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import javax.persistence.*;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
@@ -42,7 +43,8 @@ public class AiSummaryResult {
 
     private Integer tokensOut;
 
-    private Double costUsd;
+    @Column(precision = 10, scale = 6)
+    private BigDecimal costUsd;
 
     private Integer latencyMs;
 
