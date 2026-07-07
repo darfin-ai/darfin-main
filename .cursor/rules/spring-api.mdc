@@ -1,0 +1,31 @@
+---
+description: Spring Boot API and Java conventions
+globs: src/**/*.java
+alwaysApply: false
+---
+
+# Java / Spring conventions
+
+- Base package: `com.kosta.darfin`
+- Layered: controller → service → repository → entity
+- Lombok `@RequiredArgsConstructor` for constructor injection
+- Return `ResponseEntity<T>` from controllers
+- Errors via `GlobalExceptionHandler` (`@RestControllerAdvice`)
+
+## Adding an endpoint
+
+1. DTO in `dto/{domain}/`
+2. Service method in `service/{domain}/`
+3. Controller method with `@RestController` + `@RequestMapping`
+4. If new table: update `ddl.sql` + entity + repository
+
+## Frontend contract
+
+`/company` responses must match `darfin-front/src/mocks/companyAnalysis/types.js`.
+Disclosure responses use camelCase to match Python `schemas.py`.
+
+## Do not
+
+- Put business logic in controllers
+- Change `ddl.sql` without updating JPA entities
+- Mix 정기공시 and 수시공시 domain logic

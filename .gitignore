@@ -61,5 +61,13 @@ Thumbs.db
 # application specific
 application.properties
 
+# Environment (secrets)
+.env
+.env.*
+!.env.example
+
+# Cursor MCP config (may contain API tokens)
+.cursor/mcp.json
+
 # Database
 ddl.sql
