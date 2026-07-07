@@ -41,6 +41,10 @@ public class AiAnalysisItem {
     @Column(nullable = false)
     private Byte riskTier;
 
+    private Integer tokensIn;
+
+    private Integer tokensOut;
+
     @Column(columnDefinition = "json")
     private String extra;
 

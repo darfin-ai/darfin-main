@@ -63,19 +63,19 @@ public class SummaryService {
 
         if (!result.isSuccess()) {
             log.error("[LLM 서비스 실패] {}", result.getErrorMessage());
-            saveFailure(rceptNo, "GEMINI_TIMEOUT", result.getErrorMessage(), result.getModelName());
+            saveFailure(rceptNo, "GEMINI_TIMEOUT", result.getErrorMessage(), result.getModelName(), dartContext);
             return SummaryResult.error(result.getErrorMessage());
         }
 
         String rawRiskLabel = result.getOverallRisk();
 
-        
+
         RiskNormalizer.NormalizedRisk normalized;
         try {
             normalized = riskNormalizer.normalize(typeCode, rawRiskLabel);
         } catch (RiskNormalizer.RiskLabelNotFoundException e) {
             log.error("[risk_tier 비정규화 실패] {}", e.getMessage());
-            saveFailure(rceptNo, "RISK_LABEL_NOT_FOUND", e.getMessage(), result.getModelName());
+            saveFailure(rceptNo, "RISK_LABEL_NOT_FOUND", e.getMessage(), result.getModelName(), dartContext);
             return SummaryResult.error(e.getMessage());
         }
 
@@ -93,6 +93,7 @@ public class SummaryService {
         summary.setCostUsd(costUsd);
         summary.setLatencyMs((int) result.getLatencyMs());
         summary.setCacheHit(false);
+        summary.setCompressedContextChars(dartContext == null ? null : dartContext.length());
 
         summaryRepo.save(summary);
 
@@ -103,7 +104,7 @@ public class SummaryService {
                 result.getTokensIn(), result.getTokensOut(), costUsd, (int) result.getLatencyMs());
     }
 
-    private void saveFailure(String rceptNo, String errorCode, String errorMessage, String modelName) {
+    private void saveFailure(String rceptNo, String errorCode, String errorMessage, String modelName, String dartContext) {
         AiSummaryResult summary = new AiSummaryResult();
         summary.setRceptNo(rceptNo);
         summary.setSummaryText("");
@@ -114,6 +115,7 @@ public class SummaryService {
         summary.setCacheHit(false);
         summary.setErrorCode(errorCode);
         summary.setErrorMessage(errorMessage == null ? null : errorMessage.substring(0, Math.min(300, errorMessage.length())));
+        summary.setCompressedContextChars(dartContext == null ? null : dartContext.length());
         summaryRepo.save(summary);
     }
 

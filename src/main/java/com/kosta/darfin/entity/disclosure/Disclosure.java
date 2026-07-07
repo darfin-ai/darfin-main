@@ -27,9 +27,6 @@ public class Disclosure {
     @JoinColumn(name = "type_code", nullable = false)
     private DisclosureType disclosureType;
 
-    @Column(length = 100)
-    private String reporterName;
-
     @Column(nullable = false, length = 300)
     private String title;
 
@@ -39,18 +36,11 @@ public class Disclosure {
     @Column(nullable = false)
     private LocalDate filedAt;
 
-    private LocalDateTime rceptDt;
-
     @Column(length = 300)
     private String rawZipPath;
 
     @Column(length = 300)
     private String rawTextPath;
-
-    private Integer charCount;
-
-    @Column(length = 10)
-    private String fiscalYear;
 
     @Column(columnDefinition = "json")
     private String missingTargets;

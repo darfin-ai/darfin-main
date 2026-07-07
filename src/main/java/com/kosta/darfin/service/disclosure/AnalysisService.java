@@ -102,6 +102,8 @@ public class AnalysisService {
             entity.setMaterialImpact(item.getMaterialImpact());
             entity.setRiskLabel(item.getRiskLevel());
             entity.setRiskTier(riskTier);
+            entity.setTokensIn(result.getTokensIn());
+            entity.setTokensOut(result.getTokensOut());
             toSave.add(entity);
         }
 
