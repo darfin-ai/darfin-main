@@ -25,7 +25,8 @@ public class PaymentMethodController {
     public ResponseEntity<PaymentMethodResponse> registerCard(
             @AuthenticationPrincipal UserDetails userDetails,
             @Valid @RequestBody RegisterCardRequest request) {
-        PaymentMethods method = paymentMethodService.registerCard(userDetails.getUsername(), request.getAuthKey());
+        PaymentMethods method = paymentMethodService.registerCard(
+                userDetails.getUsername(), request.getAuthKey(), request.getCardName());
         return ResponseEntity.ok(toResponse(method));
     }
 
@@ -57,6 +58,7 @@ public class PaymentMethodController {
         return PaymentMethodResponse.builder()
                 .id(method.getId())
                 .cardCompany(method.getCardCompany())
+                .cardName(method.getCardName())
                 .maskedCardNum(method.getMaskedCardNum())
                 .isDefault(method.getIsDefault())
                 .build();

@@ -36,6 +36,8 @@ public class AuthService {
 
     private static final String TEMP_PW_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$";
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+    // 프론트엔드 public/profile.png (프로필 미첨부 시 기본 이미지)
+    private static final String DEFAULT_PROFILE_IMAGE = "/profile.png";
 
     private final UsersRepository usersRepository;
     private final RefreshTokensRepository refreshTokensRepository;
@@ -76,6 +78,9 @@ public class AuthService {
                 .name(request.getName())
                 .phone(request.getPhone())
                 .nickname(request.getNickname())
+                .profileImage(request.getProfileImage() != null && !request.getProfileImage().isBlank()
+                        ? request.getProfileImage()
+                        : DEFAULT_PROFILE_IMAGE)
                 .build());
         createInitialFundsIfAbsent(user);
         createInitialSubscriptionIfAbsent(user);

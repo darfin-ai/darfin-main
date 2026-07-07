@@ -30,6 +30,10 @@ public class PaymentMethods {
     @Column(nullable = false, length = 50)
     private String cardCompany;
 
+    // 사용자가 등록 시 입력한 카드 별칭 (예: "내 신한카드")
+    @Column(length = 50)
+    private String cardName;
+
     @Column(nullable = false, length = 20)
     private String maskedCardNum;
 
@@ -40,11 +44,12 @@ public class PaymentMethods {
     private LocalDateTime createdAt = LocalDateTime.now();
 
     @Builder
-    public PaymentMethods(Users user, String billingKey, String cardCompany,
+    public PaymentMethods(Users user, String billingKey, String cardCompany, String cardName,
                            String maskedCardNum, Boolean isDefault) {
         this.user = user;
         this.billingKey = billingKey;
         this.cardCompany = cardCompany;
+        this.cardName = cardName;
         this.maskedCardNum = maskedCardNum;
         this.isDefault = isDefault != null && isDefault;
     }

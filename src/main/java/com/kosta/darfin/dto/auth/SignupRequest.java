@@ -29,4 +29,7 @@ public class SignupRequest {
 
     @NotBlank(message = "닉네임은 필수입니다.")
     private String nickname;
+
+    // 선택 항목: 미첨부 시 서비스에서 기본 프로필 이미지를 사용한다.
+    private String profileImage;
 }

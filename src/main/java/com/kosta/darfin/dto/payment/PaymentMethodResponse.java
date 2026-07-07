@@ -8,6 +8,7 @@ import lombok.Getter;
 public class PaymentMethodResponse {
     private Long id;
     private String cardCompany;
+    private String cardName;
     private String maskedCardNum;
     private boolean isDefault;
 }

@@ -21,17 +21,21 @@ public class PaymentMethodService {
     private final TossPaymentsClient tossPaymentsClient;
 
     @Transactional
-    public PaymentMethods registerCard(String email, String authKey) {
+    public PaymentMethods registerCard(String email, String authKey, String cardName) {
         Users user = resolveAuthenticatedUser(email);
 
         TossPaymentsClient.BillingKeyResult result =
                 tossPaymentsClient.issueBillingKey(authKey, "USER_" + user.getId());
 
         boolean isFirst = paymentMethodsRepository.countByUser_Id(user.getId()) == 0;
+        String resolvedCardName = (cardName != null && !cardName.isBlank())
+                ? cardName.trim()
+                : result.getCardCompany();
         return paymentMethodsRepository.save(PaymentMethods.builder()
                 .user(user)
                 .billingKey(result.getBillingKey())
                 .cardCompany(result.getCardCompany())
+                .cardName(resolvedCardName)
                 .maskedCardNum(result.getMaskedCardNumber())
                 .isDefault(isFirst)
                 .build());
