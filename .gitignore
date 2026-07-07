@@ -61,13 +61,15 @@ Thumbs.db
 # application specific
 application.properties
 
+# Agent context (local only)
+AGENTS.md
+CLAUDE.md
+.cursor/
+
 # Environment (secrets)
 .env
 .env.*
 !.env.example
-
-# Cursor MCP config (may contain API tokens)
-.cursor/mcp.json
 
 # Database
 ddl.sql
