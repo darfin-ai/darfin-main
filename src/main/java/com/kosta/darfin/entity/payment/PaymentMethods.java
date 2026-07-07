@@ -1,5 +1,6 @@
 package com.kosta.darfin.entity.payment;
 
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
@@ -37,4 +38,22 @@ public class PaymentMethods {
 
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
+
+    @Builder
+    public PaymentMethods(Users user, String billingKey, String cardCompany,
+                           String maskedCardNum, Boolean isDefault) {
+        this.user = user;
+        this.billingKey = billingKey;
+        this.cardCompany = cardCompany;
+        this.maskedCardNum = maskedCardNum;
+        this.isDefault = isDefault != null && isDefault;
+    }
+
+    public void markDefault() {
+        this.isDefault = true;
+    }
+
+    public void unmarkDefault() {
+        this.isDefault = false;
+    }
 }

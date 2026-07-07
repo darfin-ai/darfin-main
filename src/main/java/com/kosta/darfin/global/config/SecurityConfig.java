@@ -51,11 +51,15 @@ public class SecurityConfig {
                 .antMatchers("/funds/**").permitAll()
                 .antMatchers("/ws/**").permitAll()
                 .antMatchers("/api/disclosures/**").permitAll()
-                .antMatchers("/api/summary/**").permitAll()
+                // 공시 요약/분석은 문서 열람권(토큰) 과금을 위해 인증 필수 — permitAll에서 제외하고 anyRequest()로 위임
                 .antMatchers("/api/analysis/portfolio", "/api/analysis/portfolio/**").authenticated()
-                .antMatchers("/api/analysis/**").permitAll()
                 .antMatchers("/api/collect").permitAll()
-                .antMatchers("/api/v1/companies/**").permitAll()
+                // 기업 목록은 공개, 기업 상세는 열람권(토큰) 과금 대상이라 인증 필요 → anyRequest()로 위임
+                .antMatchers("/api/v1/companies").permitAll()
+                .antMatchers("/api/v1/webhooks/toss").permitAll()
+                .antMatchers("/api/v1/subscriptions/**").authenticated()
+                .antMatchers("/api/v1/billing/**").authenticated()
+                .antMatchers("/api/v1/tokens/**").authenticated()
                 .antMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()
                 .antMatchers(HttpMethod.POST, "/api/v1/auth/signup").permitAll()
                 .antMatchers(HttpMethod.GET,  "/api/v1/auth/oauth2/authorize/**").permitAll()

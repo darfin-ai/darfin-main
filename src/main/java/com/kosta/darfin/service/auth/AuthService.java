@@ -8,10 +8,13 @@ import com.kosta.darfin.dto.auth.TokenResponse;
 import com.kosta.darfin.entity.common.RefreshTokens;
 import com.kosta.darfin.entity.common.Users;
 import com.kosta.darfin.entity.fund.Funds;
+import com.kosta.darfin.entity.payment.Subscriptions;
 import com.kosta.darfin.global.jwt.JwtTokenProvider;
 import com.kosta.darfin.repository.common.RefreshTokensRepository;
 import com.kosta.darfin.repository.common.UsersRepository;
 import com.kosta.darfin.repository.fund.FundsRepository;
+import com.kosta.darfin.repository.payment.SubscriptionsRepository;
+import com.kosta.darfin.service.payment.PlanType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -37,6 +40,7 @@ public class AuthService {
     private final UsersRepository usersRepository;
     private final RefreshTokensRepository refreshTokensRepository;
     private final FundsRepository fundsRepository;
+    private final SubscriptionsRepository subscriptionsRepository;
     private final JwtTokenProvider jwtTokenProvider;
     private final PasswordEncoder passwordEncoder;
     private final MailService mailService;
@@ -60,6 +64,7 @@ public class AuthService {
                         request.getNickname()
                 );
                 createInitialFundsIfAbsent(user);
+                createInitialSubscriptionIfAbsent(user);
                 return;
             }
             throw new ResponseStatusException(HttpStatus.CONFLICT, "이미 사용 중인 이메일입니다.");
@@ -73,6 +78,7 @@ public class AuthService {
                 .nickname(request.getNickname())
                 .build());
         createInitialFundsIfAbsent(user);
+        createInitialSubscriptionIfAbsent(user);
     }
 
     // -------------------------------------------------------------------------
@@ -114,6 +120,9 @@ public class AuthService {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "이메일 또는 비밀번호가 올바르지 않습니다.");
         }
 
+        // 구독/토큰 기능이 생기기 전에 가입한 계정 보정 (최초 로그인 시 1회)
+        createInitialSubscriptionIfAbsent(user);
+
         return issueTokens(user, ipAddress, userAgent);
     }
 
@@ -138,6 +147,9 @@ public class AuthService {
         if ("DELETED".equals(user.getStatus())) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "탈퇴한 계정입니다.");
         }
+
+        // 구독/토큰 기능이 생기기 전에 가입한 계정 보정 (최초 로그인 시 1회)
+        createInitialSubscriptionIfAbsent(user);
 
         return issueTokens(user, ipAddress, userAgent);
     }
@@ -235,7 +247,27 @@ public class AuthService {
                 .build();
         Users saved = usersRepository.save(user);
         createInitialFundsIfAbsent(saved);
+        createInitialSubscriptionIfAbsent(saved);
         return saved;
+    }
+
+    private void createInitialSubscriptionIfAbsent(Users user) {
+        if (subscriptionsRepository.findByUser_Id(user.getId()).isPresent()) {
+            return;
+        }
+        subscriptionsRepository.save(Subscriptions.builder()
+                .user(user)
+                .planName("BASIC")
+                .status("ACTIVE")
+                .build());
+        // 구독/토큰 기능 도입 전에 만들어진 계정은 subscriptionLevel="FREE"/tokenBalance=0로 남아있으므로
+        // 구독 신규 생성과 함께 BASIC 기준값으로 맞춰준다.
+        user.changeSubscriptionLevel("BASIC");
+        user.resetTokenBalance(PlanType.BASIC.getTokenQuota());
+        // login()/socialLogin() 이후 issueTokens()에서 refreshTokensRepository.deleteByUser()가
+        // 영속성 컨텍스트를 clear하므로(다른 곳의 saveAndFlush 주석 참고), 그 전에 즉시 flush해야
+        // 이 변경사항이 유실되지 않는다.
+        usersRepository.saveAndFlush(user);
     }
 
     private void createInitialFundsIfAbsent(Users user) {

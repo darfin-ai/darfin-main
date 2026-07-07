@@ -27,6 +27,28 @@ public class MailService {
         }
     }
 
+    public void sendSubscriptionDowngradedMail(String toEmail, String reason) {
+        MimeMessage message = mailSender.createMimeMessage();
+        try {
+            MimeMessageHelper helper = new MimeMessageHelper(message, false, "UTF-8");
+            helper.setTo(toEmail);
+            helper.setSubject("[Darfin] 정기결제 실패로 Basic 요금제로 전환되었습니다");
+            helper.setText(buildDowngradeMailBody(reason), true);
+            mailSender.send(message);
+        } catch (MessagingException e) {
+            throw new RuntimeException("이메일 전송 중 오류가 발생했습니다.", e);
+        }
+    }
+
+    private String buildDowngradeMailBody(String reason) {
+        return "<div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;'>"
+             + "<h2 style='color: #333;'>정기결제 실패 안내</h2>"
+             + "<p>정기결제를 2회 연속 시도했으나 실패하여 Basic(무료) 요금제로 전환되었습니다.</p>"
+             + "<p style='color:#888; font-size:13px;'>실패 사유: " + reason + "</p>"
+             + "<p>결제 수단을 갱신하신 후 다시 구독을 시작해주세요.</p>"
+             + "</div>";
+    }
+
     private String buildMailBody(String tempPassword) {
         return "<div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;'>"
              + "<h2 style='color: #333;'>Darfin 임시 비밀번호 안내</h2>"

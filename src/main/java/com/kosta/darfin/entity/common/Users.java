@@ -51,11 +51,11 @@ public class Users {
 
     @Builder.Default
     @Column(nullable = false, length = 20)
-    private String subscriptionLevel = "FREE";
+    private String subscriptionLevel = "BASIC";
 
     @Builder.Default
     @Column(nullable = false)
-    private Integer tokenBalance = 0;
+    private Integer tokenBalance = 10000;
 
     @Builder.Default
     @Column(nullable = false, updatable = false)
@@ -67,6 +67,26 @@ public class Users {
 
     public void updatePassword(String encodedPassword) {
         this.password  = encodedPassword;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void changeSubscriptionLevel(String subscriptionLevel) {
+        this.subscriptionLevel = subscriptionLevel;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    // 잔액 부족 시 false 반환(호출 측에서 402 처리), 성공 시 차감 후 true
+    public boolean deductToken(int amount) {
+        if (this.tokenBalance < amount) {
+            return false;
+        }
+        this.tokenBalance -= amount;
+        this.updatedAt = LocalDateTime.now();
+        return true;
+    }
+
+    public void resetTokenBalance(int amount) {
+        this.tokenBalance = amount;
         this.updatedAt = LocalDateTime.now();
     }
 

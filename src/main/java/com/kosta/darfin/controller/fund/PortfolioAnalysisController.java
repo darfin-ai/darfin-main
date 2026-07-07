@@ -1,6 +1,8 @@
 package com.kosta.darfin.controller.fund;
 
 import com.kosta.darfin.service.fund.PortfolioAnalysisService;
+import com.kosta.darfin.service.payment.FeatureType;
+import com.kosta.darfin.service.payment.TokenBillingService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -19,14 +21,23 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class PortfolioAnalysisController {
 
+    private static final int REPORT_TOKEN_COST = 2000;
+
     private final PortfolioAnalysisService portfolioAnalysisService;
+    private final TokenBillingService tokenBillingService;
 
     @PostMapping
     public Map<String, Object> analyzePortfolio(
             @AuthenticationPrincipal UserDetails user,
             @RequestBody Map<String, Object> body
     ) {
-        return portfolioAnalysisService.analyzeAndSave(usernameOf(user), body);
+        String email = usernameOf(user);
+        // 외부 LLM 호출 전에 잔액을 미리 확인해 불필요한 호출을 막고, 리포트 생성이
+        // 실제로 성공한 뒤에만(예외 없이 반환된 경우에만) 토큰을 차감한다.
+        tokenBillingService.assertSufficientBalance(email, REPORT_TOKEN_COST);
+        Map<String, Object> result = portfolioAnalysisService.analyzeAndSave(email, body);
+        tokenBillingService.chargeForAction(email, FeatureType.PORTFOLIO_REPORT, REPORT_TOKEN_COST);
+        return result;
     }
 
     @GetMapping("/reports")
