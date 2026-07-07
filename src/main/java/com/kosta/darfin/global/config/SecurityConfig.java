@@ -52,6 +52,7 @@ public class SecurityConfig {
                 .antMatchers("/ws/**").permitAll()
                 .antMatchers("/api/disclosures/**").permitAll()
                 .antMatchers("/api/summary/**").permitAll()
+                .antMatchers("/api/analysis/portfolio", "/api/analysis/portfolio/**").authenticated()
                 .antMatchers("/api/analysis/**").permitAll()
                 .antMatchers("/api/collect").permitAll()
                 .antMatchers("/api/v1/companies/**").permitAll()

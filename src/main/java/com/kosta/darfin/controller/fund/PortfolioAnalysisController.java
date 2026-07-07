@@ -32,10 +32,9 @@ public class PortfolioAnalysisController {
     @GetMapping("/reports")
     public Map<String, Object> getPortfolioReports(
             @AuthenticationPrincipal UserDetails user,
-            @RequestParam(defaultValue = "20") Integer limit,
-            @RequestParam(required = false) Long userId
+            @RequestParam(defaultValue = "20") Integer limit
     ) {
-        List<Map<String, Object>> reports = portfolioAnalysisService.listReports(usernameOf(user), limit, userId);
+        List<Map<String, Object>> reports = portfolioAnalysisService.listReports(usernameOf(user), limit);
         return Map.of("reports", reports);
     }
 

@@ -40,7 +40,7 @@ public class PortfolioAnalysisService {
     private final UserTradingStatsRepository userTradingStatsRepository;
 
     public Map<String, Object> analyzeAndSave(String email, Map<String, Object> requestBody) {
-        Users user = resolveUser(email, requestBody);
+        Users user = resolveAuthenticatedUser(email);
         Map<String, Object> pythonRequest = new LinkedHashMap<>(requestBody);
         pythonRequest.remove("userId");
         pythonRequest.remove("user_id");
@@ -95,12 +95,8 @@ public class PortfolioAnalysisService {
         userTradingStatsRepository.save(stats);
     }
 
-    public List<Map<String, Object>> listReports(String email, Integer limit, Long requestedUserId) {
-        Map<String, Object> userHint = new LinkedHashMap<>();
-        if (requestedUserId != null) {
-            userHint.put("userId", requestedUserId);
-        }
-        Users user = resolveUser(email, userHint);
+    public List<Map<String, Object>> listReports(String email, Integer limit) {
+        Users user = resolveAuthenticatedUser(email);
         int safeLimit = Math.max(1, Math.min(limit == null ? 20 : limit, 50));
 
         return aiReportsRepository.findByUser_IdOrderByCreatedAtDescReportIdDesc(user.getId()).stream()
@@ -123,20 +119,12 @@ public class PortfolioAnalysisService {
         }
     }
 
-    private Users resolveUser(String email, Map<String, Object> body) {
-        if (email != null && !email.isBlank()) {
-            return usersRepository.findByEmail(email)
-                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "사용자 정보를 찾을 수 없습니다."));
+    private Users resolveAuthenticatedUser(String email) {
+        if (email == null || email.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "인증이 필요합니다.");
         }
-
-        Long userId = toLong(body.get("userId"));
-        if (userId == null) userId = toLong(body.get("user_id"));
-        if (userId != null) {
-            return usersRepository.findById(userId)
-                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "사용자 정보를 찾을 수 없습니다."));
-        }
-
-        throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "인증이 필요합니다.");
+        return usersRepository.findByEmail(email)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "사용자 정보를 찾을 수 없습니다."));
     }
 
     private Map<String, Object> toClientReport(AiReports row) {
@@ -223,15 +211,4 @@ public class PortfolioAnalysisService {
         return null;
     }
 
-    private Long toLong(Object value) {
-        if (value instanceof Number) return ((Number) value).longValue();
-        if (value instanceof String && !((String) value).isBlank()) {
-            try {
-                return Long.parseLong((String) value);
-            } catch (NumberFormatException ignored) {
-                return null;
-            }
-        }
-        return null;
-    }
 }

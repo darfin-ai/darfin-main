@@ -262,6 +262,7 @@ public class KisRealtimeClient {
                 public void onError(Exception ex) {
 
                     log.error("===== KIS ERROR =====", ex);
+                    if (canUseRealtime()) scheduleReconnect();
 
                 }
 
