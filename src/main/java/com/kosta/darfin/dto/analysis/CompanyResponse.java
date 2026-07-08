@@ -13,6 +13,7 @@ public class CompanyResponse {
     private String latestFilingType;
     private String latestFilingDate;
     private String changeSummary;
+    private String market;           // KOSPI | KOSDAQ (from stock.market_type)
     private Integer marketCapRank;
     private Integer kosdaqRank;
     private String marketCap;

@@ -12,11 +12,12 @@ import java.util.stream.Collectors;
 
 /**
  * darfin-company-analysis(Python) 파이프라인이 채운 9개 테이블을 읽기 전용으로
- * 조회한다. JPA가 아니라 JdbcTemplate을 쓰는 이유: entity/analysis의 기존
- * 엔티티(Metrics/TextChunks 등)가 실제 ddl.sql과 어긋나 있고, 이 프로젝트는
- * spring.jpa.hibernate.ddl-auto=update라 Hibernate가 그 엔티티들에 맞춰 이
- * 테이블(파이프라인이 실제로 쓰는 살아있는 데이터)을 건드릴 위험이 있다 —
- * JdbcTemplate은 이 테이블들에 Hibernate가 전혀 관여하지 않게 한다.
+ * 조회한다. JPA가 아니라 JdbcTemplate을 쓰는 이유: 이 프로젝트는
+ * spring.jpa.hibernate.ddl-auto=update라, 엔티티를 만들면 Hibernate가 그
+ * 정의에 맞춰 이 테이블들(파이프라인이 소유한 살아있는 데이터)의 스키마를
+ * 건드릴 수 있다. 실제로 ddl.sql과 어긋난 entity/analysis 엔티티들이 있었고
+ * (어디서도 안 쓰여 2026-07-07 삭제), 같은 사고를 막기 위해 여기서는
+ * 엔티티 없이 JdbcTemplate만 쓴다.
  */
 @Slf4j
 @Service
@@ -53,7 +54,7 @@ public class CompanyAnalysisService {
 
     public List<CompanyListItemResponse> listCompanies() {
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                "SELECT c.corp_code, s.company_name, s.stock_code, c.sector, "
+                "SELECT c.corp_code, s.company_name, s.stock_code, s.market_type, c.sector, "
                         + "  f.reprt_code, f.bsns_year, f.filed_date "
                         + "FROM companies c "
                         + "JOIN stock s ON s.dart_corp_code = c.corp_code "
@@ -74,6 +75,7 @@ public class CompanyAnalysisService {
                     .name((String) row.get("company_name"))
                     .ticker((String) row.get("stock_code"))
                     .sector((String) row.get("sector"))
+                    .market((String) row.get("market_type"))
                     .latestFilingType(reprtCode != null ? REPRT_TYPE_LABEL.get(reprtCode) : null)
                     .latestFilingDate(formatFiledDate((String) row.get("filed_date")))
                     .changeSummary(latestChangeSummary(corpCode))
@@ -94,7 +96,7 @@ public class CompanyAnalysisService {
      */
     public CompanyDetailResponse getCompanyDetail(String corpCode) {
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                "SELECT c.corp_code, s.company_name, s.stock_code, c.sector, "
+                "SELECT c.corp_code, s.company_name, s.stock_code, s.market_type, c.sector, "
                         + "  f.reprt_code, f.bsns_year, f.filed_date "
                         + "FROM companies c "
                         + "JOIN stock s ON s.dart_corp_code = c.corp_code "
@@ -116,6 +118,7 @@ public class CompanyAnalysisService {
                 .name((String) row.get("company_name"))
                 .ticker((String) row.get("stock_code"))
                 .sector((String) row.get("sector"))
+                .market((String) row.get("market_type"))
                 .latestFilingType(reprtCode != null ? REPRT_TYPE_LABEL.get(reprtCode) : null)
                 .latestFilingDate(formatFiledDate((String) row.get("filed_date")))
                 .changeSummary(latestChangeSummary(corpCode))
@@ -129,30 +132,30 @@ public class CompanyAnalysisService {
             // overview 자체가 없거나(파이프라인이 이 회사를 아예 처리 안 함),
             // 있어도 aiInsightsReady=false(결정론적 패널만 채워지고 findings/
             // risks/insight 같은 LLM 산출물은 아직) — 두 경우 다 LLM 처리
-            // 대기열에 최우선순위(on_demand)로 올려서, 다음 워커 실행 때
-            // 다른 예약 작업보다 먼저 처리되게 한다. Python 파이프라인이
-            // 소유하는 테이블이라 JdbcTemplate로 직접 INSERT만 한다(JPA
-            // 엔티티 없음).
+            // 대기열에 등록한다(이미 대기 중이면 중복 등록 없이 그대로 둠).
+            // Python 파이프라인이 소유하는 테이블이라 JdbcTemplate로 직접
+            // INSERT만 한다(JPA 엔티티 없음).
             enqueueOnDemandJob(corpCode);
         }
 
         return CompanyDetailResponse.builder()
                 .company(company)
                 .scores(scoreHistory(corpCode))
-                .financials(financials(corpCode))
+                .financials(financials(corpCode, true))
+                .financialsSeparate(financials(corpCode, false))
                 .findings(currentRceptNo != null ? findings(currentRceptNo) : List.of())
                 .diffs(currentRceptNo != null ? diffs(currentRceptNo) : List.of())
                 .profile(deriveProfile(overview))
-                .strategyShifts(strategyShifts(overview))
+                .mdnaHistory(mdnaHistory(overview))
                 .recentFilings(recentFilings)
                 .overview(overview)
                 .build();
     }
 
     /**
-     * llm_jobs에 이미 pending/running인 job이 있으면 priority=0(on_demand)으로
-     * 승격, 없으면 새로 추가한다. dart_pipeline.db: enqueue_llm_job()과 동일한
-     * "더 급한 쪽으로만 갱신" 로직을 SQL로 재현.
+     * llm_jobs에 이미 pending/running인 job이 있으면 아무것도 하지 않고,
+     * 없으면 새로 추가한다. 등록 경로가 이 메서드 하나뿐이라 우선순위 없이
+     * 단순 FIFO(등록 순서 = 처리 순서).
      */
     private void enqueueOnDemandJob(String corpCode) {
         List<Long> existing = jdbcTemplate.queryForList(
@@ -161,11 +164,7 @@ public class CompanyAnalysisService {
         );
         if (existing.isEmpty()) {
             jdbcTemplate.update(
-                    "INSERT INTO llm_jobs (corp_code, priority) VALUES (?, 0)", corpCode
-            );
-        } else {
-            jdbcTemplate.update(
-                    "UPDATE llm_jobs SET priority = 0 WHERE id = ?", existing.get(0)
+                    "INSERT INTO llm_jobs (corp_code) VALUES (?)", corpCode
             );
         }
     }
@@ -184,14 +183,19 @@ public class CompanyAnalysisService {
 
     /**
      * 그리드 카드용 changeSummary — 파이프라인에 전용 1줄 요약 산출물이 아직
-     * 없어(findings 라운드에서 범위 제외) 최신 filing의 서술형 llm_summaries
-     * 아무 1건으로 임시 대체한다. 알려진 한계.
+     * 없어(findings 라운드에서 범위 제외) 최신 filing의 findings 중 가장
+     * 심각한 것의 summary로 대체한다. 예전처럼 llm_summaries 아무 1건을
+     * 쓰면 '주식 사항' 섹션의 날짜 나열 같은 원문 조각이 카드에 그대로
+     * 노출된다. findings가 아직 없으면(LLM 단계 미완료) 빈 문자열 —
+     * 프론트가 대체 문구를 보여준다.
      */
     private String latestChangeSummary(String corpCode) {
         List<String> rows = jdbcTemplate.queryForList(
-                "SELECT ls.content FROM llm_summaries ls "
-                        + "JOIN filings f ON f.rcept_no = ls.rcept_no "
-                        + "WHERE ls.corp_code = ? ORDER BY f.filed_date DESC, ls.id DESC LIMIT 1",
+                "SELECT fd.summary FROM findings fd "
+                        + "JOIN filings f ON f.rcept_no = fd.rcept_no "
+                        + "WHERE fd.corp_code = ? "
+                        + "ORDER BY f.filed_date DESC, FIELD(fd.severity, 'high', 'medium', 'low'), fd.id "
+                        + "LIMIT 1",
                 String.class, corpCode
         );
         return rows.isEmpty() ? "" : rows.get(0);
@@ -224,51 +228,189 @@ public class CompanyAnalysisService {
     }
 
     /**
-     * 연결(is_consolidated=1) 기준, account_nm별로 묶는다. concept(=DART
-     * account_id)은 같은 계정이라도 보고서 종류/연도에 따라 dart_* 확장 태그와
-     * ifrs-full_* 표준 태그를 오가거나 아예 비어(표준계정코드 미사용) 있어서
-     * 시계열 묶음 키로 쓰면 한 계정이 여러 조각으로 쪼개진다(자산총계처럼
-     * 항상 같은 표준 concept로 태깅되는 상위 합계 항목만 안 쪼개짐). account_nm은
-     * metrics.py에서 이미 strip()되어 있어 안정적인 키다.
-     * 손익/현금흐름은 period_qualifier='3개월'(분기 단일값) 우선, 없으면(=재무
-     * 상태표류, 시점 수치) NULL 행을 사용 — 누적치와 섞지 않는다.
+     * 연결(is_consolidated=1) 기준, (statement_type, 정규화된 account_nm)별로
+     * 묶는다. account_nm만 키로 쓰면 '당기순이익'(손익계산서/현금흐름표),
+     * '비지배지분'(재무상태표/포괄손익) 같은 동명 계정이 한 시계열로 합쳐져
+     * 같은 분기에 값이 2~3개씩 찍히는 톱니 차트가 된다. concept(=DART
+     * account_id)은 같은 계정이라도 보고서 종류/연도에 따라 태그가 바뀌거나
+     * 비어 있어 키로 못 쓴다(대표값으로만 노출).
+     *
+     * 분기 축에 올리는 값은 재무제표 종류별로 의미를 맞춘다:
+     * - 재무상태표: 시점 수치라 그대로 사용 (사업보고서 행 = Q4 스냅샷).
+     * - 손익계산서: 분기보고서의 '3개월' 행 우선. 사업보고서(11011)는 연간
+     *   단일값뿐이라 같은 해 3분기 누적이 있으면 Q4 = 연간 − 3분기 누적으로
+     *   환산하고, 없으면(분기 데이터가 아예 없는 기준연도) 그 점은 뺀다 —
+     *   연간 총액을 분기 축에 그대로 두면 매 Q4가 4배 스파이크로 보인다.
+     * - 현금흐름표: 연중 누적치만 공시되므로 분기값 = 당분기 누적 − 직전
+     *   분기 누적(Q1은 누적 그대로). 직전 분기 행이 없으면 그 점은 뺀다.
+     * 정정공시로 같은 (연도, 보고서) 행이 중복되면 나중에 적재된 행이 이긴다.
      */
-    private List<FinancialMetricResponse> financials(String corpCode) {
+    private static final List<String> QUARTER_ORDER = List.of("11013", "11012", "11014", "11011");
+
+    /** 프론트 표시용 재무제표 순서 — 공시 원문의 장(章) 순서와 같다. */
+    private static final List<String> STATEMENT_ORDER = List.of("재무상태표", "손익계산서", "현금흐름표");
+
+    private List<FinancialMetricResponse> financials(String corpCode, boolean isConsolidated) {
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                "SELECT m.concept, m.account_nm, m.amount, m.bsns_year, m.reprt_code, m.period_qualifier "
-                        + "FROM metrics m WHERE m.corp_code = ? AND m.is_consolidated = 1 "
-                        + "AND (m.period_qualifier = '3개월' OR m.period_qualifier IS NULL) "
-                        + "ORDER BY m.bsns_year, FIELD(m.reprt_code, '11013', '11012', '11014', '11011')",
-                corpCode
+                "SELECT m.id, m.concept, m.account_nm, m.statement_type, m.ord, m.amount, "
+                        + "  m.bsns_year, m.reprt_code, m.period_qualifier "
+                        + "FROM metrics m WHERE m.corp_code = ? AND m.is_consolidated = ? "
+                        + "ORDER BY m.bsns_year, FIELD(m.reprt_code, '11013', '11012', '11014', '11011'), "
+                        + "COALESCE(m.ord, m.id)",
+                corpCode, isConsolidated ? 1 : 0
         );
         Map<String, List<Map<String, Object>>> byKey = rows.stream()
-                .collect(Collectors.groupingBy(r -> (String) r.get("account_nm"),
+                .filter(r -> r.get("amount") != null)
+                .collect(Collectors.groupingBy(
+                        r -> r.get("statement_type") + "|" + normalizeAccountNm((String) r.get("account_nm")),
                         LinkedHashMap::new, Collectors.toList()));
 
+        // 같은 계정명이 여러 재무제표에 있으면 라벨에 재무제표 종류를 붙여 구분한다.
+        Map<String, Long> nameCount = byKey.keySet().stream()
+                .collect(Collectors.groupingBy(k -> k.substring(k.indexOf('|') + 1), Collectors.counting()));
+
         List<FinancialMetricResponse> result = new ArrayList<>();
+        // 정렬 키: (재무제표 장 순서, 계정 ord). ord는 fnlttSinglAcntAll이 주는
+        // 공시 원문 표 순서라 id 근사보다 정확하다. 구 데이터(ord NULL)만 id로 폴백.
+        Map<String, long[]> sortKeyByLabel = new HashMap<>();
         for (Map.Entry<String, List<Map<String, Object>>> e : byKey.entrySet()) {
+            String statementType = e.getKey().substring(0, e.getKey().indexOf('|'));
+            String accountNm = e.getKey().substring(e.getKey().indexOf('|') + 1);
             List<Map<String, Object>> group = e.getValue();
-            String label = e.getKey();
+
+            Map<String, Long> series = buildQuarterSeries(statementType, group);
+            if (series.isEmpty()) {
+                continue;
+            }
+
+            // 표시명: 정규화된 이름 그대로인 원본 표기가 있으면 그것을
+            // ('당기순이익(손실)'/'분기순이익'/'반기순이익' 그룹 → '당기순이익'),
+            // 없으면 가장 짧은 원본 표기를 쓴다.
+            String displayNm = group.stream()
+                    .map(r -> (String) r.get("account_nm"))
+                    .anyMatch(accountNm::equals)
+                    ? accountNm
+                    : group.stream()
+                            .map(r -> (String) r.get("account_nm"))
+                            .min(Comparator.comparingInt(String::length))
+                            .orElse(accountNm);
+            String label = nameCount.getOrDefault(accountNm, 1L) > 1
+                    ? displayNm + " (" + statementType + ")"
+                    : displayNm;
             // 태깅이 기간별로 바뀌므로 가장 최근 필딩이 쓴 concept를 대표값으로 노출한다.
             String concept = group.stream()
                     .map(r -> (String) r.get("concept"))
                     .filter(Objects::nonNull)
                     .reduce((first, last) -> last)
-                    .orElse(null);
-            List<FinancialMetricResponse.SeriesPoint> series = group.stream()
-                    .map(r -> FinancialMetricResponse.SeriesPoint.builder()
-                            .quarter(quarterLabel((String) r.get("bsns_year"), (String) r.get("reprt_code")))
-                            .value(((Number) r.get("amount")).longValue())
-                            .build())
-                    .collect(Collectors.toList());
+                    .orElse(statementType + "_" + accountNm);
+            long statementRank = STATEMENT_ORDER.indexOf(statementType);
+            long accountOrd = group.stream()
+                    .map(r -> r.get("ord"))
+                    .filter(Objects::nonNull)
+                    .mapToLong(o -> ((Number) o).longValue())
+                    .min()
+                    .orElseGet(() -> group.stream()
+                            .mapToLong(r -> ((Number) r.get("id")).longValue())
+                            .min()
+                            .orElse(Long.MAX_VALUE));
+            sortKeyByLabel.put(label, new long[]{statementRank < 0 ? STATEMENT_ORDER.size() : statementRank, accountOrd});
+
             result.add(FinancialMetricResponse.builder()
                     .concept(concept)
                     .label(label)
+                    .statementType(statementType)
                     .unit("KRW")
-                    .series(series)
+                    .series(series.entrySet().stream()
+                            .map(p -> FinancialMetricResponse.SeriesPoint.builder()
+                                    .quarter(p.getKey())
+                                    .value(p.getValue())
+                                    .build())
+                            .collect(Collectors.toList()))
                     .build());
         }
+        result.sort(Comparator
+                .comparingLong((FinancialMetricResponse m) -> sortKeyByLabel.get(m.getLabel())[0])
+                .thenComparingLong(m -> sortKeyByLabel.get(m.getLabel())[1]));
         return result;
+    }
+
+    /**
+     * 계정명 표기 변동 정규화 — 같은 계정이 연도/보고서에 따라 '매출액'/
+     * '수익(매출액)', '당기순이익'/'당기순이익(손실)'/'분기순이익'/'반기순이익',
+     * '영업활동 현금흐름'/'영업활동현금흐름'처럼 갈라져 시계열이 조각난다.
+     * 의미가 확실히 같은 변형만 접는다: 공백·각주 마커 제거, '(손실)' 접미
+     * 제거, 보고서 기간에 따라 이름이 바뀌는 순이익 계열, '수익(매출액)' 별칭.
+     */
+    private String normalizeAccountNm(String accountNm) {
+        String n = accountNm.replaceAll("\\s*\\(주\\d+\\)", "").replace(" ", "");
+        n = n.replace("(손실)", "");
+        n = n.replaceAll("^(기본|희석)주당(분기|반기)?순이익$", "$1주당순이익");
+        n = n.replaceAll("^(분기|반기)순이익$", "당기순이익");
+        if (n.equals("수익(매출액)")) {
+            n = "매출액";
+        }
+        return n;
+    }
+
+    /** 분기 라벨("2024Q1") → 값. 입력 group은 (연도, 보고서, id)순 정렬 상태. */
+    private Map<String, Long> buildQuarterSeries(String statementType, List<Map<String, Object>> group) {
+        // (연도, 보고서)별 대표 행 — 정정공시 중복은 나중 행(id 큰 쪽)이 덮어쓴다.
+        Map<String, Map<String, Long>> byYear = new TreeMap<>(); // year → reprt_code → amount
+        for (Map<String, Object> r : group) {
+            String qualifier = (String) r.get("period_qualifier");
+            boolean use = "손익계산서".equals(statementType)
+                    ? ("3개월".equals(qualifier) || ("11011".equals(r.get("reprt_code")) && qualifier == null))
+                    : qualifier == null;
+            if (!use) {
+                continue;
+            }
+            byYear.computeIfAbsent((String) r.get("bsns_year"), k -> new HashMap<>())
+                    .put((String) r.get("reprt_code"), ((Number) r.get("amount")).longValue());
+        }
+        // 손익 Q4 환산용: 3분기 누적(11014, '누적') 값.
+        Map<String, Long> q3Cumulative = new HashMap<>();
+        if ("손익계산서".equals(statementType)) {
+            for (Map<String, Object> r : group) {
+                if ("누적".equals(r.get("period_qualifier")) && "11014".equals(r.get("reprt_code"))) {
+                    q3Cumulative.put((String) r.get("bsns_year"), ((Number) r.get("amount")).longValue());
+                }
+            }
+        }
+
+        Map<String, Long> series = new LinkedHashMap<>();
+        for (Map.Entry<String, Map<String, Long>> yearEntry : byYear.entrySet()) {
+            String year = yearEntry.getKey();
+            Map<String, Long> byReprt = yearEntry.getValue();
+            Long prevCumulative = null; // 현금흐름표 분기 환산용
+            for (String reprtCode : QUARTER_ORDER) {
+                Long amount = byReprt.get(reprtCode);
+                if (amount == null) {
+                    prevCumulative = null; // 중간 분기가 비면 이후 누적 차감이 불가능
+                    continue;
+                }
+                String quarter = quarterLabel(year, reprtCode);
+                if ("손익계산서".equals(statementType)) {
+                    if ("11011".equals(reprtCode)) {
+                        Long q3 = q3Cumulative.get(year);
+                        if (q3 != null) {
+                            series.put(quarter, amount - q3);
+                        }
+                    } else {
+                        series.put(quarter, amount);
+                    }
+                } else if ("현금흐름표".equals(statementType)) {
+                    if ("11013".equals(reprtCode)) {
+                        series.put(quarter, amount);
+                    } else if (prevCumulative != null) {
+                        series.put(quarter, amount - prevCumulative);
+                    }
+                    prevCumulative = amount;
+                } else {
+                    series.put(quarter, amount); // 재무상태표 등 시점 수치
+                }
+            }
+        }
+        return series;
     }
 
     private List<FindingResponse> findings(String rceptNo) {
@@ -391,18 +533,19 @@ public class CompanyAnalysisService {
     }
 
     /**
-     * company_overview의 strategyShifts는 filing 단위가 아니라 회사 전체
-     * 역사를 한 번에 보고 계산돼(Python: strategy_shifts_ingest.py) 최신
-     * filing의 overview_json에만 patch돼 있다. 아직 계산 전(필드 없음)이면
-     * 빈 리스트 — 프론트는 이 경우 기존 "사업의 내용" 카드로 폴백한다.
+     * company_overview의 mdnaHistory는 경영진 설명(MD&A)이 실제로 있는 filing을
+     * 시간순으로 나열한 목록(LLM 판정 없음, 결정론적 — Python: overview.py:
+     * build_mdna_entry)이라 결정론적 1단계에서 이미 채워져 있다. 필드 자체가
+     * 없으면(1단계 이전 구버전 행) 빈 리스트 — 프론트는 이 경우 기존 "사업의
+     * 내용" 카드로 폴백한다.
      */
     @SuppressWarnings("unchecked")
-    private List<Object> strategyShifts(Object overview) {
+    private List<Object> mdnaHistory(Object overview) {
         if (!(overview instanceof Map)) {
             return List.of();
         }
-        Object shifts = ((Map<String, Object>) overview).get("strategyShifts");
-        return shifts instanceof List ? (List<Object>) shifts : List.of();
+        Object history = ((Map<String, Object>) overview).get("mdnaHistory");
+        return history instanceof List ? (List<Object>) history : List.of();
     }
 
     private Object parseJson(String json) {

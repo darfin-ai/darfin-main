@@ -10,11 +10,14 @@ import java.util.List;
 public class CompanyDetailResponse {
     private CompanyResponse company;
     private List<ScoreComponentResponse> scores;
+    /** 연결재무제표(is_consolidated=1) 기준 계정 시계열 */
     private List<FinancialMetricResponse> financials;
+    /** 별도재무제표(is_consolidated=0) 기준 계정 시계열 */
+    private List<FinancialMetricResponse> financialsSeparate;
     private List<FindingResponse> findings;
     private List<SectionDiffEntryResponse> diffs;
     private CompanyProfileResponse profile;
-    private List<Object> strategyShifts; // 범위 밖 — 항상 빈 배열
+    private List<Object> mdnaHistory; // company_overview.overview_json.mdnaHistory 그대로 통과
     private List<RecentFilingResponse> recentFilings;
     private Object overview; // company_overview.overview_json 그대로 통과
 }
