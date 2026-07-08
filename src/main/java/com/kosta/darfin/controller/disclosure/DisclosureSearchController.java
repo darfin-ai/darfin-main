@@ -2,7 +2,9 @@ package com.kosta.darfin.controller.disclosure;
 
 import com.kosta.darfin.dto.disclosure.DisclosureSearchCondition;
 import com.kosta.darfin.dto.disclosure.DisclosureSearchResponse;
+import com.kosta.darfin.dto.disclosure.TodayDisclosureDto;
 import com.kosta.darfin.service.disclosure.DisclosureSearchService;
+import com.kosta.darfin.service.disclosure.DisclosureTodayService;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -19,9 +21,20 @@ import java.util.List;
 public class DisclosureSearchController {
 
     private final DisclosureSearchService searchService;
+    private final DisclosureTodayService todayService;
 
-    public DisclosureSearchController(DisclosureSearchService searchService) {
+    public DisclosureSearchController(DisclosureSearchService searchService,
+                                       DisclosureTodayService todayService) {
         this.searchService = searchService;
+        this.todayService = todayService;
+    }
+
+    /** GET /api/disclosures/today — 검색 전 화면에 보여줄 "오늘 올라온 공시" 최신 N건 */
+    @GetMapping("/api/disclosures/today")
+    public ResponseEntity<List<TodayDisclosureDto>> today(
+            @RequestParam(defaultValue = "6") int limit
+    ) {
+        return ResponseEntity.ok(todayService.getTodayDisclosures(limit));
     }
 
     @GetMapping("/api/disclosures")
