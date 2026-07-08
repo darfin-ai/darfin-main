@@ -109,7 +109,7 @@ public class CompanyAnalysisService {
                 corpCode
         );
         if (rows.isEmpty()) {
-            return null;
+            return getStockPreview(corpCode);
         }
         Map<String, Object> row = rows.get(0);
         String reprtCode = (String) row.get("reprt_code");
@@ -149,6 +149,40 @@ public class CompanyAnalysisService {
                 .mdnaHistory(mdnaHistory(overview))
                 .recentFilings(recentFilings)
                 .overview(overview)
+                .build();
+    }
+
+    /**
+     * companies에 없어도 stock에 있는 상장 종목은 기본 정보만 담은 preview를 반환한다.
+     * 파이프라인 데이터·LLM 큐 등록은 하지 않는다 — 사용자가 My Analysis에 추가하기 전 browse 용도.
+     */
+    private CompanyDetailResponse getStockPreview(String corpCode) {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                "SELECT dart_corp_code, company_name, stock_code, market_type "
+                        + "FROM stock WHERE dart_corp_code = ? AND stock_code IS NOT NULL",
+                corpCode
+        );
+        if (rows.isEmpty()) {
+            return null;
+        }
+        Map<String, Object> row = rows.get(0);
+        CompanyResponse company = CompanyResponse.builder()
+                .id(corpCode)
+                .name((String) row.get("company_name"))
+                .ticker((String) row.get("stock_code"))
+                .market((String) row.get("market_type"))
+                .changeSummary("")
+                .build();
+
+        return CompanyDetailResponse.builder()
+                .company(company)
+                .scores(List.of())
+                .financials(List.of())
+                .financialsSeparate(List.of())
+                .findings(List.of())
+                .diffs(List.of())
+                .recentFilings(List.of())
+                .preview(true)
                 .build();
     }
 

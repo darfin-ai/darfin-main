@@ -2,7 +2,10 @@ package com.kosta.darfin.controller.analysis;
 
 import com.kosta.darfin.dto.analysis.CompanyDetailResponse;
 import com.kosta.darfin.dto.analysis.CompanyListItemResponse;
+import com.kosta.darfin.dto.analysis.CompanyOnboardResponse;
+import com.kosta.darfin.dto.analysis.CompanySearchResultResponse;
 import com.kosta.darfin.service.analysis.CompanyAnalysisService;
+import com.kosta.darfin.service.analysis.CompanySearchService;
 import com.kosta.darfin.service.payment.FeatureType;
 import com.kosta.darfin.service.payment.TokenBillingService;
 import lombok.RequiredArgsConstructor;
@@ -11,7 +14,9 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -24,6 +29,7 @@ public class CompanyController {
     private static final int UNLOCK_TOKEN_COST = 2000;
 
     private final CompanyAnalysisService companyAnalysisService;
+    private final CompanySearchService companySearchService;
     private final TokenBillingService tokenBillingService;
 
     /**
@@ -33,6 +39,25 @@ public class CompanyController {
     @GetMapping
     public ResponseEntity<List<CompanyListItemResponse>> listCompanies() {
         return ResponseEntity.ok(companyAnalysisService.listCompanies());
+    }
+
+    /**
+     * 상장 종목 검색 (stock 테이블, companies 여부는 analyzed 플래그로 표시)
+     * GET /api/v1/companies/search?keyword=
+     */
+    @GetMapping("/search")
+    public ResponseEntity<List<CompanySearchResultResponse>> searchCompanies(
+            @RequestParam(required = false) String keyword) {
+        return ResponseEntity.ok(companySearchService.search(keyword));
+    }
+
+    /**
+     * 분석 대상 등록 — companies에 없으면 stock 기준으로 INSERT
+     * POST /api/v1/companies/{corpCode}/onboard
+     */
+    @PostMapping("/{corpCode}/onboard")
+    public ResponseEntity<CompanyOnboardResponse> onboardCompany(@PathVariable String corpCode) {
+        return ResponseEntity.ok(companySearchService.onboard(corpCode));
     }
 
     /**
@@ -48,8 +73,10 @@ public class CompanyController {
         if (detail == null) {
             return ResponseEntity.notFound().build();
         }
-        tokenBillingService.chargeForUnlock(
-                userDetails.getUsername(), FeatureType.COMPANY, corpCode, UNLOCK_TOKEN_COST);
+        if (!detail.isPreview()) {
+            tokenBillingService.chargeForUnlock(
+                    userDetails.getUsername(), FeatureType.COMPANY, corpCode, UNLOCK_TOKEN_COST);
+        }
         return ResponseEntity.ok(detail);
     }
 }

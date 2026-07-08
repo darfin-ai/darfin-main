@@ -56,6 +56,8 @@ public class SecurityConfig {
                 .antMatchers("/api/collect").permitAll()
                 // 기업 목록은 공개, 기업 상세는 열람권(토큰) 과금 대상이라 인증 필요 → anyRequest()로 위임
                 .antMatchers("/api/v1/companies").permitAll()
+                .antMatchers(HttpMethod.GET, "/api/v1/companies/search").permitAll()
+                .antMatchers(HttpMethod.POST, "/api/v1/companies/*/onboard").permitAll()
                 .antMatchers("/api/v1/webhooks/toss").permitAll()
                 .antMatchers("/api/v1/subscriptions/**").authenticated()
                 .antMatchers("/api/v1/billing/**").authenticated()

@@ -20,4 +20,6 @@ public class CompanyDetailResponse {
     private List<Object> mdnaHistory; // company_overview.overview_json.mdnaHistory 그대로 통과
     private List<RecentFilingResponse> recentFilings;
     private Object overview; // company_overview.overview_json 그대로 통과
+    /** companies 미등록 stock-only preview (파이프라인·AI 데이터 없음) */
+    private boolean preview;
 }
