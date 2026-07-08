@@ -30,17 +30,21 @@ public class DartDocumentResponseDto {
     public String getErrorMessage() { return errorMessage; }
 
     /**
-     * 공시 원문을 문단/표 단위로 구조화한 블록 하나 (Python DocumentBlock과 1:1 대응).
+     * 공시 원문을 문단/제목/표 단위로 구조화한 블록 하나 (Python DocumentBlock과 1:1 대응).
      * charStart/charEnd는 text 안에서 이 블록이 차지하는 문자 구간이며, 기존 하이라이트
      * offset(analysisItems.charOffsetStart/End, termHighlights.startIndex/endIndex)과 좌표계를 공유한다.
+     *
+     * type == "heading"은 장/절 제목이며 level(1~3)로 위계를 나타낸다 — 프론트가 목차·시각적
+     * 위계를 그리는 데 쓴다. paragraph/table 블록은 level이 없다(null).
      *
      * 표 셀은 문자열이 아니라 Cell(rowSpan/colSpan + Block 목록)이다 — 사업/분기보고서 각주처럼
      * 표 안에 또 표가 중첩된 경우(예: 종속기업 현황 스케줄)를 문자열로 뭉개지 않고 실제 중첩 표로
      * 표현하기 위함이다. 보통은 문단 블록 하나짜리 목록이다.
      */
     public static class Block {
-        private String type; // "paragraph" | "table"
+        private String type; // "paragraph" | "heading" | "table"
         private String text;
+        private Integer level; // type == "heading" (1=장, 2=절, 3=항)
         private List<List<Cell>> rows; // row -> cell
         private Integer charStart;
         private Integer charEnd;
@@ -49,6 +53,8 @@ public class DartDocumentResponseDto {
         public void setType(String type) { this.type = type; }
         public String getText() { return text; }
         public void setText(String text) { this.text = text; }
+        public Integer getLevel() { return level; }
+        public void setLevel(Integer level) { this.level = level; }
         public List<List<Cell>> getRows() { return rows; }
         public void setRows(List<List<Cell>> rows) { this.rows = rows; }
         public Integer getCharStart() { return charStart; }
