@@ -34,11 +34,11 @@ public class TossPaymentsClient {
     private final String baseUrl;
 
     public TossPaymentsClient(RestTemplate restTemplate,
-                               @Value("${toss.payments.secret-key}") String secretKey,
-                               @Value("${toss.payments.base-url}") String baseUrl) {
+                               @Value("${toss.payments.secret-key:}") String secretKey,
+                               @Value("${toss.payments.base-url:https://api.tosspayments.com/v1}") String baseUrl) {
         this.restTemplate = restTemplate;
         this.secretKey = secretKey;
-        this.baseUrl = baseUrl;
+        this.baseUrl = removeTrailingSlash(baseUrl);
     }
 
     // authKey(프론트 tossPayments.requestBillingAuth 성공 후 콜백으로 받은 값) → billingKey 발급
@@ -78,6 +78,8 @@ public class TossPaymentsClient {
     }
 
     private Map<String, Object> post(String url, Map<String, Object> body) {
+        validateConfigured();
+
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set(HttpHeaders.AUTHORIZATION, "Basic " + encodedSecretKey());
@@ -99,6 +101,20 @@ public class TossPaymentsClient {
 
     private String encodedSecretKey() {
         return Base64.getEncoder().encodeToString((secretKey + ":").getBytes(StandardCharsets.UTF_8));
+    }
+
+    private void validateConfigured() {
+        if (secretKey == null || secretKey.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "결제 서비스 설정이 필요합니다. toss.payments.secret-key를 설정해주세요.");
+        }
+    }
+
+    private String removeTrailingSlash(String value) {
+        if (value == null || value.isBlank()) {
+            return "https://api.tosspayments.com/v1";
+        }
+        return value.endsWith("/") ? value.substring(0, value.length() - 1) : value;
     }
 
     @SuppressWarnings("unchecked")

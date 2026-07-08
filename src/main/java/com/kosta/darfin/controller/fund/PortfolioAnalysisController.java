@@ -1,12 +1,17 @@
 package com.kosta.darfin.controller.fund;
 
 import com.kosta.darfin.service.fund.PortfolioAnalysisService;
+import com.kosta.darfin.service.fund.PortfolioAnalysisPdfService;
 import com.kosta.darfin.service.payment.FeatureType;
 import com.kosta.darfin.service.payment.TokenBillingService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -24,6 +29,7 @@ public class PortfolioAnalysisController {
     private static final int REPORT_TOKEN_COST = 2000;
 
     private final PortfolioAnalysisService portfolioAnalysisService;
+    private final PortfolioAnalysisPdfService portfolioAnalysisPdfService;
     private final TokenBillingService tokenBillingService;
 
     @PostMapping
@@ -47,6 +53,20 @@ public class PortfolioAnalysisController {
     ) {
         List<Map<String, Object>> reports = portfolioAnalysisService.listReports(usernameOf(user), limit);
         return Map.of("reports", reports);
+    }
+
+    @GetMapping({"/reports/{reportId}.pdf", "/reports/{reportId}/download"})
+    public ResponseEntity<byte[]> downloadPortfolioReportPdf(
+            @AuthenticationPrincipal UserDetails user,
+            @PathVariable Long reportId
+    ) {
+        byte[] pdf = portfolioAnalysisPdfService.createReportPdf(usernameOf(user), reportId);
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_PDF)
+                .contentLength(pdf.length)
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"portfolio-report-" + reportId + ".pdf\"")
+                .body(pdf);
     }
 
     private String usernameOf(UserDetails user) {
