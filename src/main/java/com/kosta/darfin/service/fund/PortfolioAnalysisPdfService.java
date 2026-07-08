@@ -82,25 +82,26 @@ public class PortfolioAnalysisPdfService {
 
             document.close();
             return out.toByteArray();
-        } catch (DocumentException | IOException e) {
+        } catch (DocumentException | IOException | PdfGenerationException e) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "AI 리포트 PDF 생성 실패", e);
         }
     }
 
-    private void addTitle(Document document, AiReports row, PdfFonts fonts) throws DocumentException {
+    private void addTitle(Document document, AiReports row, PdfFonts fonts) {
         Paragraph title = new Paragraph("AI 투자 분석 리포트", fonts.title);
         title.setAlignment(Element.ALIGN_LEFT);
         title.setSpacingAfter(8);
-        document.add(title);
 
         String createdAt = row.getCreatedAt() == null ? "-" : row.getCreatedAt().format(DATE_TIME_FORMATTER);
         Paragraph subtitle = new Paragraph("Report #" + row.getReportId() + " · " + createdAt, fonts.subtitle);
         subtitle.setSpacingAfter(18);
-        document.add(subtitle);
+
+        addDocumentElement(document, title);
+        addDocumentElement(document, subtitle);
     }
 
     private void addOverview(Document document, AiReports row, Map<String, Object> content, PdfFonts fonts)
-            throws DocumentException {
+    {
         Map<String, Object> report = asMap(content.get("report"));
         Map<String, Object> health = asMap(report.get("health"));
 
@@ -117,10 +118,10 @@ public class PortfolioAnalysisPdfService {
         addMetaCell(table, "생성일", fonts);
         addValueCell(table, row.getCreatedAt() == null ? "-" : row.getCreatedAt().format(DATE_TIME_FORMATTER), fonts);
 
-        document.add(table);
+        addDocumentElement(document, table);
     }
 
-    private void addAnalysis(Document document, Object analysis, PdfFonts fonts) throws DocumentException {
+    private void addAnalysis(Document document, Object analysis, PdfFonts fonts) {
         addSectionTitle(document, "AI 분석 내용", fonts);
         if (analysis == null) {
             addBodyParagraph(document, "저장된 AI 분석 내용이 없습니다.", fonts);
@@ -129,7 +130,7 @@ public class PortfolioAnalysisPdfService {
         addBodyParagraph(document, readableValue(analysis), fonts);
     }
 
-    private void addMetrics(Document document, Map<String, Object> metrics, PdfFonts fonts) throws DocumentException {
+    private void addMetrics(Document document, Map<String, Object> metrics, PdfFonts fonts) {
         if (metrics.isEmpty()) return;
 
         addSectionTitle(document, "주요 지표", fonts);
@@ -142,7 +143,7 @@ public class PortfolioAnalysisPdfService {
             addValueCell(table, value, fonts);
         });
 
-        document.add(table);
+        addDocumentElement(document, table);
     }
 
     private Map<String, String> flatten(Map<String, Object> source, String prefix) {
@@ -158,18 +159,26 @@ public class PortfolioAnalysisPdfService {
         return result;
     }
 
-    private void addSectionTitle(Document document, String text, PdfFonts fonts) throws DocumentException {
+    private void addSectionTitle(Document document, String text, PdfFonts fonts) {
         Paragraph paragraph = new Paragraph(text, fonts.section);
         paragraph.setSpacingBefore(4);
         paragraph.setSpacingAfter(8);
-        document.add(paragraph);
+        addDocumentElement(document, paragraph);
     }
 
-    private void addBodyParagraph(Document document, String text, PdfFonts fonts) throws DocumentException {
+    private void addBodyParagraph(Document document, String text, PdfFonts fonts) {
         Paragraph paragraph = new Paragraph(text, fonts.body);
         paragraph.setLeading(17);
         paragraph.setSpacingAfter(14);
-        document.add(paragraph);
+        addDocumentElement(document, paragraph);
+    }
+
+    private void addDocumentElement(Document document, Element element) {
+        try {
+            document.add(element);
+        } catch (DocumentException e) {
+            throw new PdfGenerationException(e);
+        }
     }
 
     private void addMetaCell(PdfPTable table, String text, PdfFonts fonts) {
@@ -236,7 +245,7 @@ public class PortfolioAnalysisPdfService {
         return hasText(secondValue) ? secondValue : defaultValue;
     }
 
-    private PdfFonts createFonts() throws IOException, DocumentException {
+    private PdfFonts createFonts() throws IOException {
         BaseFont baseFont = createBaseFont();
         return new PdfFonts(
                 new Font(baseFont, 22, Font.BOLD, new Color(27, 36, 48)),
@@ -248,7 +257,7 @@ public class PortfolioAnalysisPdfService {
         );
     }
 
-    private BaseFont createBaseFont() throws IOException, DocumentException {
+    private BaseFont createBaseFont() throws IOException {
         if (hasText(configuredFontPath) && fontExists(configuredFontPath)) {
             try {
                 return BaseFont.createFont(configuredFontPath, BaseFont.IDENTITY_H, BaseFont.EMBEDDED);
@@ -267,7 +276,11 @@ public class PortfolioAnalysisPdfService {
             }
         }
 
-        return BaseFont.createFont(BaseFont.HELVETICA, BaseFont.WINANSI, BaseFont.NOT_EMBEDDED);
+        try {
+            return BaseFont.createFont(BaseFont.HELVETICA, BaseFont.WINANSI, BaseFont.NOT_EMBEDDED);
+        } catch (DocumentException e) {
+            throw new PdfGenerationException(e);
+        }
     }
 
     private boolean fontExists(String path) {
@@ -303,6 +316,12 @@ public class PortfolioAnalysisPdfService {
             this.metaLabel = metaLabel;
             this.metaValue = metaValue;
             this.body = body;
+        }
+    }
+
+    private static class PdfGenerationException extends RuntimeException {
+        private PdfGenerationException(Throwable cause) {
+            super(cause);
         }
     }
 }
