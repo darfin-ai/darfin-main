@@ -26,6 +26,7 @@ public class CompanyAnalysisService {
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
+    private final DartOverviewClient dartOverviewClient;
 
     private static final Map<String, String> REPRT_TYPE_LABEL = Map.of(
             "11011", "사업보고서",
@@ -111,6 +112,11 @@ public class CompanyAnalysisService {
         if (rows.isEmpty()) {
             return getStockPreview(corpCode);
         }
+        // DART 캐시용으로 companies 행만 생긴 browse-only 기업(파이프라인 미실행)은
+        // preview 경로로 — 토큰 과금·llm_jobs 등록 없이 dartOverview만 제공.
+        if (!hasFilings(corpCode)) {
+            return getStockPreview(corpCode);
+        }
         Map<String, Object> row = rows.get(0);
         String reprtCode = (String) row.get("reprt_code");
         CompanyResponse company = CompanyResponse.builder()
@@ -149,6 +155,7 @@ public class CompanyAnalysisService {
                 .mdnaHistory(mdnaHistory(overview))
                 .recentFilings(recentFilings)
                 .overview(overview)
+                .dartOverview(dartOverviewClient.fetchDartOverview(corpCode))
                 .build();
     }
 
@@ -183,6 +190,7 @@ public class CompanyAnalysisService {
                 .diffs(List.of())
                 .recentFilings(List.of())
                 .preview(true)
+                .dartOverview(dartOverviewClient.fetchDartOverview(corpCode))
                 .build();
     }
 
@@ -192,15 +200,28 @@ public class CompanyAnalysisService {
      * 단순 FIFO(등록 순서 = 처리 순서).
      */
     private void enqueueOnDemandJob(String corpCode) {
-        List<Long> existing = jdbcTemplate.queryForList(
-                "SELECT id FROM llm_jobs WHERE corp_code = ? AND status IN ('pending','running')",
-                Long.class, corpCode
-        );
-        if (existing.isEmpty()) {
-            jdbcTemplate.update(
-                    "INSERT INTO llm_jobs (corp_code) VALUES (?)", corpCode
+        try {
+            List<Long> existing = jdbcTemplate.queryForList(
+                    "SELECT id FROM llm_jobs WHERE corp_code = ? AND status IN ('pending','running')",
+                    Long.class, corpCode
             );
+            if (existing.isEmpty()) {
+                jdbcTemplate.update(
+                        "INSERT INTO llm_jobs (corp_code) VALUES (?)", corpCode
+                );
+            }
+        } catch (Exception e) {
+            log.warn("llm_jobs enqueue skipped for {}: {}", corpCode, e.getMessage());
         }
+    }
+
+    private boolean hasFilings(String corpCode) {
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM filings WHERE corp_code = ? AND pipeline_status != 'FAILED'",
+                Integer.class,
+                corpCode
+        );
+        return count != null && count > 0;
     }
 
     // ── 공통 조회 ────────────────────────────────────────────────────────
