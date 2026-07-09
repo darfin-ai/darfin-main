@@ -26,6 +26,7 @@ public class CompanyAnalysisService {
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
+    private final DartOverviewClient dartOverviewClient;
 
     private static final Map<String, String> REPRT_TYPE_LABEL = Map.of(
             "11011", "사업보고서",
@@ -109,7 +110,12 @@ public class CompanyAnalysisService {
                 corpCode
         );
         if (rows.isEmpty()) {
-            return null;
+            return getStockPreview(corpCode);
+        }
+        // DART 캐시용으로 companies 행만 생긴 browse-only 기업(파이프라인 미실행)은
+        // preview 경로로 — 토큰 과금·llm_jobs 등록 없이 dartOverview만 제공.
+        if (!hasFilings(corpCode)) {
+            return getStockPreview(corpCode);
         }
         Map<String, Object> row = rows.get(0);
         String reprtCode = (String) row.get("reprt_code");
@@ -149,6 +155,42 @@ public class CompanyAnalysisService {
                 .mdnaHistory(mdnaHistory(overview))
                 .recentFilings(recentFilings)
                 .overview(overview)
+                .dartOverview(dartOverviewClient.fetchDartOverview(corpCode))
+                .build();
+    }
+
+    /**
+     * companies에 없어도 stock에 있는 상장 종목은 기본 정보만 담은 preview를 반환한다.
+     * 파이프라인 데이터·LLM 큐 등록은 하지 않는다 — 사용자가 My Analysis에 추가하기 전 browse 용도.
+     */
+    private CompanyDetailResponse getStockPreview(String corpCode) {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                "SELECT dart_corp_code, company_name, stock_code, market_type "
+                        + "FROM stock WHERE dart_corp_code = ? AND stock_code IS NOT NULL",
+                corpCode
+        );
+        if (rows.isEmpty()) {
+            return null;
+        }
+        Map<String, Object> row = rows.get(0);
+        CompanyResponse company = CompanyResponse.builder()
+                .id(corpCode)
+                .name((String) row.get("company_name"))
+                .ticker((String) row.get("stock_code"))
+                .market((String) row.get("market_type"))
+                .changeSummary("")
+                .build();
+
+        return CompanyDetailResponse.builder()
+                .company(company)
+                .scores(List.of())
+                .financials(List.of())
+                .financialsSeparate(List.of())
+                .findings(List.of())
+                .diffs(List.of())
+                .recentFilings(List.of())
+                .preview(true)
+                .dartOverview(dartOverviewClient.fetchDartOverview(corpCode))
                 .build();
     }
 
@@ -158,15 +200,28 @@ public class CompanyAnalysisService {
      * 단순 FIFO(등록 순서 = 처리 순서).
      */
     private void enqueueOnDemandJob(String corpCode) {
-        List<Long> existing = jdbcTemplate.queryForList(
-                "SELECT id FROM llm_jobs WHERE corp_code = ? AND status IN ('pending','running')",
-                Long.class, corpCode
-        );
-        if (existing.isEmpty()) {
-            jdbcTemplate.update(
-                    "INSERT INTO llm_jobs (corp_code) VALUES (?)", corpCode
+        try {
+            List<Long> existing = jdbcTemplate.queryForList(
+                    "SELECT id FROM llm_jobs WHERE corp_code = ? AND status IN ('pending','running')",
+                    Long.class, corpCode
             );
+            if (existing.isEmpty()) {
+                jdbcTemplate.update(
+                        "INSERT INTO llm_jobs (corp_code) VALUES (?)", corpCode
+                );
+            }
+        } catch (Exception e) {
+            log.warn("llm_jobs enqueue skipped for {}: {}", corpCode, e.getMessage());
         }
+    }
+
+    private boolean hasFilings(String corpCode) {
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM filings WHERE corp_code = ? AND pipeline_status != 'FAILED'",
+                Integer.class,
+                corpCode
+        );
+        return count != null && count > 0;
     }
 
     // ── 공통 조회 ────────────────────────────────────────────────────────
