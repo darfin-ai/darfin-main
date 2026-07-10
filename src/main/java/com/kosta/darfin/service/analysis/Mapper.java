@@ -1,9 +1,12 @@
 package com.kosta.darfin.service.analysis;
 
+import org.springframework.stereotype.Component;
+
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+@Component
 public class Mapper {
 
     // DART meta fields (disclosure identifiers) stripped from mapped output — verbatim from report_facts.py:_META_KEYS

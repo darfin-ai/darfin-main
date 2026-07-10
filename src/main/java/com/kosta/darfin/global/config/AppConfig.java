@@ -12,9 +12,22 @@ import org.springframework.http.converter.ByteArrayHttpMessageConverter;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.Arrays;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @Configuration
 public class AppConfig {
+
+    /**
+     * Bounded pool for fanning out concurrent DART Open API calls in DartOverviewService
+     * (up to REPORT_FACT_API_IDS.size() == 10 calls per refresh). Mirrors the parallelism
+     * of the Python RT path's asyncio.gather, since DartApiClient itself is a plain
+     * blocking client.
+     */
+    @Bean
+    public ExecutorService dartOverviewExecutor() {
+        return Executors.newFixedThreadPool(10);
+    }
 
     @Bean
     public RestTemplate restTemplate() {

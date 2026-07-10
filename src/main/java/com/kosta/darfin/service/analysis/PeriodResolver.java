@@ -2,6 +2,7 @@ package com.kosta.darfin.service.analysis;
 
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -12,6 +13,7 @@ import java.util.*;
  * {@code latest_periodic_from_list}, {@code list_filings_date_range}. Does not port
  * {@code resolve_latest_period_sync} — that is the batch-only sync variant.
  */
+@Component
 public class PeriodResolver {
 
     private static final int LIST_LOOKBACK_DAYS = 548;

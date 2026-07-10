@@ -2,6 +2,7 @@ package com.kosta.darfin.service.analysis;
 
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Component;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -11,6 +12,7 @@ import java.util.regex.Pattern;
  * filing's {@code report_nm} is one of the four periodic report kinds
  * (사업/반기/분기보고서) and resolves its (reprtCode, bsnsYear).
  */
+@Component
 public class ReportClassifier {
 
     private static final Pattern REPORT_NM =

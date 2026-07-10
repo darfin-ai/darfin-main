@@ -26,7 +26,7 @@ public class CompanyAnalysisService {
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
-    private final DartOverviewClient dartOverviewClient;
+    private final DartOverviewService dartOverviewService;
 
     private static final Map<String, String> REPRT_TYPE_LABEL = Map.of(
             "11011", "사업보고서",
@@ -155,7 +155,7 @@ public class CompanyAnalysisService {
                 .mdnaHistory(mdnaHistory(overview))
                 .recentFilings(recentFilings)
                 .overview(overview)
-                .dartOverview(dartOverviewClient.fetchDartOverview(corpCode))
+                .dartOverview(dartOverviewService.getDartOverview(corpCode, false))
                 .build();
     }
 
@@ -190,7 +190,7 @@ public class CompanyAnalysisService {
                 .diffs(List.of())
                 .recentFilings(List.of())
                 .preview(true)
-                .dartOverview(dartOverviewClient.fetchDartOverview(corpCode))
+                .dartOverview(dartOverviewService.getDartOverview(corpCode, false))
                 .build();
     }
 

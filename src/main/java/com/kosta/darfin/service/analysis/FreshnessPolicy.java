@@ -2,12 +2,14 @@ package com.kosta.darfin.service.analysis;
 
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
+@Component
 public class FreshnessPolicy {
 
     /** One existing report_facts row, as read by ReportFactDao — payloadIsNull mirrors `payload_json IS NULL`. */
