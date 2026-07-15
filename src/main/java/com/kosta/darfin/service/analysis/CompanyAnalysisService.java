@@ -11,8 +11,9 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * darfin-company-analysis(Python) 파이프라인이 채운 9개 테이블을 읽기 전용으로
- * 조회한다. JPA가 아니라 JdbcTemplate을 쓰는 이유: 이 프로젝트는
+ * darfin-company-analysis(Python) 파이프라인이 채운 테이블들을 읽기 전용으로
+ * 조회한다(재무 수치는 예외 — 2026-07-13부터 financial_facts read-through 단일
+ * 소스, financials() 참고). JPA가 아니라 JdbcTemplate을 쓰는 이유: 이 프로젝트는
  * spring.jpa.hibernate.ddl-auto=update라, 엔티티를 만들면 Hibernate가 그
  * 정의에 맞춰 이 테이블들(파이프라인이 소유한 살아있는 데이터)의 스키마를
  * 건드릴 수 있다. 실제로 ddl.sql과 어긋난 entity/analysis 엔티티들이 있었고
@@ -27,6 +28,8 @@ public class CompanyAnalysisService {
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
     private final DartOverviewService dartOverviewService;
+    private final FinancialFactsService financialFactsService;
+    private final OnboardIngestQueue onboardIngestQueue;
 
     private static final Map<String, String> REPRT_TYPE_LABEL = Map.of(
             "11011", "사업보고서",
@@ -115,6 +118,11 @@ public class CompanyAnalysisService {
         // DART 캐시용으로 companies 행만 생긴 browse-only 기업(파이프라인 미실행)은
         // preview 경로로 — 토큰 과금·llm_jobs 등록 없이 dartOverview만 제공.
         if (!hasFilings(corpCode)) {
+            // 자가치유: 관심 기업으로 등록됐는데도(별표 시점에 기능이 아직
+            // 없었거나 실패 등으로) filings가 없는 회사는 상세를 다시 열 때마다
+            // 재등록을 시도한다 — OnboardIngestQueue가 관심 미등록 회사는
+            // 걸러내므로 단순 미리보기 조회에는 영향 없다.
+            onboardIngestQueue.enqueueIfNeeded(corpCode);
             return getStockPreview(corpCode);
         }
         Map<String, Object> row = rows.get(0);
@@ -133,16 +141,6 @@ public class CompanyAnalysisService {
         String currentRceptNo = currentFiling(corpCode);
         Object overview = currentRceptNo != null ? overviewJson(currentRceptNo) : null;
         List<RecentFilingResponse> recentFilings = recentFilings(corpCode);
-
-        if (!isAiInsightsReady(overview)) {
-            // overview 자체가 없거나(파이프라인이 이 회사를 아예 처리 안 함),
-            // 있어도 aiInsightsReady=false(결정론적 패널만 채워지고 findings/
-            // risks/insight 같은 LLM 산출물은 아직) — 두 경우 다 LLM 처리
-            // 대기열에 등록한다(이미 대기 중이면 중복 등록 없이 그대로 둠).
-            // Python 파이프라인이 소유하는 테이블이라 JdbcTemplate로 직접
-            // INSERT만 한다(JPA 엔티티 없음).
-            enqueueOnDemandJob(corpCode);
-        }
 
         return CompanyDetailResponse.builder()
                 .company(company)
@@ -184,35 +182,16 @@ public class CompanyAnalysisService {
         return CompanyDetailResponse.builder()
                 .company(company)
                 .scores(List.of())
-                .financials(List.of())
-                .financialsSeparate(List.of())
+                // financials()는 라이브 DART read-through(FinancialFactsService) 단일
+                // 소스라 개요와 동일하게 온보딩 없이도 재무 추이를 보여줄 수 있다.
+                .financials(financials(corpCode, true))
+                .financialsSeparate(financials(corpCode, false))
                 .findings(List.of())
                 .diffs(List.of())
                 .recentFilings(List.of())
                 .preview(true)
                 .dartOverview(dartOverviewService.getDartOverview(corpCode, false))
                 .build();
-    }
-
-    /**
-     * llm_jobs에 이미 pending/running인 job이 있으면 아무것도 하지 않고,
-     * 없으면 새로 추가한다. 등록 경로가 이 메서드 하나뿐이라 우선순위 없이
-     * 단순 FIFO(등록 순서 = 처리 순서).
-     */
-    private void enqueueOnDemandJob(String corpCode) {
-        try {
-            List<Long> existing = jdbcTemplate.queryForList(
-                    "SELECT id FROM llm_jobs WHERE corp_code = ? AND status IN ('pending','running')",
-                    Long.class, corpCode
-            );
-            if (existing.isEmpty()) {
-                jdbcTemplate.update(
-                        "INSERT INTO llm_jobs (corp_code) VALUES (?)", corpCode
-                );
-            }
-        } catch (Exception e) {
-            log.warn("llm_jobs enqueue skipped for {}: {}", corpCode, e.getMessage());
-        }
     }
 
     private boolean hasFilings(String corpCode) {
@@ -305,15 +284,29 @@ public class CompanyAnalysisService {
     /** 프론트 표시용 재무제표 순서 — 공시 원문의 장(章) 순서와 같다. */
     private static final List<String> STATEMENT_ORDER = List.of("재무상태표", "손익계산서", "현금흐름표");
 
+    /**
+     * 단일 소스: financial_facts read-through(FinancialFactsService). 과거에는 배치
+     * 파이프라인의 metrics 테이블과 병합했으나 2026-07-13 metrics를 폐기 —
+     * Python 파이프라인은 이제 같은 financial_facts 테이블을 미리 덥히는 역할만
+     * 한다(온보딩·일일 스캔 시 730일 lookback 밖 과거 기간 포함).
+     */
     private List<FinancialMetricResponse> financials(String corpCode, boolean isConsolidated) {
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                "SELECT m.id, m.concept, m.account_nm, m.statement_type, m.ord, m.amount, "
-                        + "  m.bsns_year, m.reprt_code, m.period_qualifier "
-                        + "FROM metrics m WHERE m.corp_code = ? AND m.is_consolidated = ? "
-                        + "ORDER BY m.bsns_year, FIELD(m.reprt_code, '11013', '11012', '11014', '11011'), "
-                        + "COALESCE(m.ord, m.id)",
-                corpCode, isConsolidated ? 1 : 0
-        );
+        List<Map<String, Object>> rows = financialFactsService.liveMetricRows(corpCode).stream()
+                .filter(r -> ((Boolean) r.get("is_consolidated")) == isConsolidated)
+                .collect(Collectors.toList());
+        rows.sort(Comparator
+                .comparing((Map<String, Object> r) -> (String) r.get("bsns_year"))
+                .thenComparingInt(r -> {
+                    int idx = QUARTER_ORDER.indexOf((String) r.get("reprt_code"));
+                    return idx < 0 ? QUARTER_ORDER.size() : idx;
+                })
+                .thenComparingLong(r -> {
+                    Object ord = r.get("ord");
+                    if (ord != null) return ((Number) ord).longValue();
+                    Object id = r.get("id");
+                    return id != null ? ((Number) id).longValue() : Long.MAX_VALUE;
+                }));
+
         Map<String, List<Map<String, Object>>> byKey = rows.stream()
                 .filter(r -> r.get("amount") != null)
                 .collect(Collectors.groupingBy(

@@ -121,6 +121,32 @@ public class DartApiClient {
         return Collections.emptyList();
     }
 
+    /** 단일회사 전체 재무제표. fsDiv: CFS(연결) / OFS(별도). Port of dart_pipeline/client.py:146 (fnltt_singl_acnt_all). */
+    @SuppressWarnings("unchecked")
+    public List<Map<String, Object>> fnlttSinglAcntAll(String corpCode, String bsnsYear, String reprtCode, String fsDiv) {
+        throttle();
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("crtfc_key", apiKey);
+        params.put("corp_code", corpCode);
+        params.put("bsns_year", bsnsYear);
+        params.put("reprt_code", reprtCode);
+        params.put("fs_div", fsDiv);
+
+        Map<String, Object> data = getWithRetry("/fnlttSinglAcntAll.json", params);
+        String status = (String) data.get("status");
+        if ("013".equals(status)) {
+            return List.of();
+        }
+        if (!"000".equals(status)) {
+            throw new DartApiException(status, String.valueOf(data.get("message")));
+        }
+        Object list = data.get("list");
+        if (list instanceof List<?>) {
+            return (List<Map<String, Object>>) list;
+        }
+        return Collections.emptyList();
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, Object> getWithRetry(String path, Map<String, String> params) {
         StringBuilder url = new StringBuilder(baseUrl).append(path).append("?");

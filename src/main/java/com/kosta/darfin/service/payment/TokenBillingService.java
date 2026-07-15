@@ -44,6 +44,14 @@ public class TokenBillingService {
         return true;
     }
 
+    /** 열람권 보유 여부만 확인 (차감 없음) — 잠금 UI 게이트용. */
+    @Transactional(readOnly = true)
+    public boolean isUnlocked(String email, FeatureType featureType, String resourceId) {
+        Users user = resolveAuthenticatedUser(email);
+        return userContentUnlocksRepository
+                .existsByUser_IdAndFeatureTypeAndResourceId(user.getId(), featureType.name(), resourceId);
+    }
+
     /** 투자분석 리포트 생성처럼 매번 차감하는 과금(dedup 없음). */
     @Transactional
     public void chargeForAction(String email, FeatureType featureType, int amount) {

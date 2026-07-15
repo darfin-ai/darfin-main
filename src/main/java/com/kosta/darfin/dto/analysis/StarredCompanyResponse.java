@@ -5,7 +5,7 @@ import lombok.Getter;
 
 @Getter
 @Builder
-public class MonitoredCompanyResponse {
+public class StarredCompanyResponse {
     private String corpCode;
     private String name;
     private String ticker;

@@ -69,8 +69,13 @@ public class PeriodResolver {
     }
 
     public DateRange listFilingsDateRange(LocalDate today) {
+        return listFilingsDateRange(today, LIST_LOOKBACK_DAYS);
+    }
+
+    /** Overload with a caller-supplied lookback — e.g. FinancialFactsService wants ~2 years, wider than dartOverview's default. */
+    public DateRange listFilingsDateRange(LocalDate today, int lookbackDays) {
         LocalDate end = today != null ? today : LocalDate.now();
-        LocalDate begin = end.minusDays(LIST_LOOKBACK_DAYS);
+        LocalDate begin = end.minusDays(lookbackDays);
         return new DateRange(begin.format(YYYYMMDD), end.format(YYYYMMDD));
     }
 }

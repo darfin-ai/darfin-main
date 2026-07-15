@@ -7,8 +7,7 @@ import java.util.List;
 
 @Getter
 @Builder
-public class MonitoredCompanyListResponse {
-    private List<MonitoredCompanyResponse> items;
+public class StarredCompanyListResponse {
+    private List<StarredCompanyResponse> items;
     private int count;
-    private int limit;
 }

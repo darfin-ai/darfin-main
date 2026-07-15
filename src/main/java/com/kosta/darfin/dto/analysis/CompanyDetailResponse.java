@@ -2,6 +2,7 @@ package com.kosta.darfin.dto.analysis;
 
 import lombok.Builder;
 import lombok.Getter;
+import lombok.Setter;
 
 import java.util.List;
 
@@ -23,4 +24,7 @@ public class CompanyDetailResponse {
     private DartOverviewResponse dartOverview; // DART 정기공시 API 기반 구조화 개요 (개요 탭)
     /** companies 미등록 stock-only preview (파이프라인·AI 데이터 없음) */
     private boolean preview;
+    /** 요청 사용자의 AI 분석 열람권 보유 여부 — 컨트롤러가 채운다. */
+    @Setter
+    private boolean aiUnlocked;
 }
