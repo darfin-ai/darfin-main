@@ -24,7 +24,7 @@ public class AppConfig {
      * of the Python RT path's asyncio.gather, since DartApiClient itself is a plain
      * blocking client.
      */
-    @Bean
+    @Bean(destroyMethod = "shutdown")
     public ExecutorService dartOverviewExecutor() {
         return Executors.newFixedThreadPool(10);
     }

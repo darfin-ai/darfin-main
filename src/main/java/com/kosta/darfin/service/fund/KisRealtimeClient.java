@@ -419,10 +419,11 @@ public class KisRealtimeClient {
             }
 
         } else if ("H0STASP0".equals(trId)) {
-            // 실시간 호가 — fields[3~7]: 매도호가1~5, fields[8~12]: 매수호가1~5
-            //               fields[13~17]: 매도잔량1~5, fields[18~22]: 매수잔량1~5
+            // H0STASP0 전체 필드 순서:
+            // fields[3~12]: 매도호가1~10, fields[13~22]: 매수호가1~10
+            // fields[23~32]: 매도잔량1~10, fields[33~42]: 매수잔량1~10
             String[] fields = parts[3].split("\\^");
-            if (fields.length < 23) return;
+            if (fields.length < 43) return;
 
             try {
                 String code = fields[0];
@@ -433,12 +434,12 @@ public class KisRealtimeClient {
                 for (int i = 0; i < 5; i++) {
                     Map<String, Object> ask = new HashMap<>();
                     ask.put("price",    Long.parseLong(fields[3 + i]));
-                    ask.put("quantity", Long.parseLong(fields[13 + i]));
+                    ask.put("quantity", Long.parseLong(fields[23 + i]));
                     asks.add(ask);
 
                     Map<String, Object> bid = new HashMap<>();
-                    bid.put("price",    Long.parseLong(fields[8 + i]));
-                    bid.put("quantity", Long.parseLong(fields[18 + i]));
+                    bid.put("price",    Long.parseLong(fields[13 + i]));
+                    bid.put("quantity", Long.parseLong(fields[33 + i]));
                     bids.add(bid);
                 }
 
@@ -457,32 +458,37 @@ public class KisRealtimeClient {
     /** 상세 페이지 진입 시 호출 — H0STCNT0(체결) + H0STASP0(호가) 동시 구독 */
     public void addDetailCode(String stockCode) {
         detailCodes.add(stockCode);
+        // 연결 대기 중에도 원하는 구독 상태를 먼저 기록해야 onOpen에서 빠짐없이 복원된다.
+        boolean executionAdded = subscribedCodes.add(stockCode);
+        boolean orderBookAdded = aspSubscribedCodes.add(stockCode);
         if (!canUseRealtime()) {
             log.debug("상세 구독 보류: {} (KIS 실시간 WebSocket 비활성)", stockCode);
             return;
         }
         if (isConnected()) {
-            if (!subscribedCodes.contains(stockCode)) {
+            if (executionAdded) {
                 subscribe("H0STCNT0", stockCode);
-                subscribedCodes.add(stockCode);
             }
-            if (!aspSubscribedCodes.contains(stockCode)) {
+            if (orderBookAdded) {
                 subscribe("H0STASP0", stockCode);
-                aspSubscribedCodes.add(stockCode);
             }
             log.info("상세 구독 추가 (체결+호가): {}", stockCode);
+        } else {
+            log.info("상세 구독 대기 (체결+호가): {}", stockCode);
         }
     }
 
     /** 상세 페이지 이탈 시 호출 — H0STCNT0 + H0STASP0 즉시 해제 */
     public void removeDetailCode(String stockCode) {
         detailCodes.remove(stockCode);
+        boolean orderBookRemoved = aspSubscribedCodes.remove(stockCode);
         if (!canUseRealtime()) return;
         if (isConnected()) {
-            if (aspSubscribedCodes.remove(stockCode)) {
+            if (orderBookRemoved) {
                 unsubscribe("H0STASP0", stockCode);
             }
-            if (subscribedCodes.remove(stockCode)) {
+            // 관심종목 등 별도 가격 구독이 있으면 체결 구독은 유지한다.
+            if (!directPriceCodes.contains(stockCode) && subscribedCodes.remove(stockCode)) {
                 unsubscribe("H0STCNT0", stockCode);
             }
         }

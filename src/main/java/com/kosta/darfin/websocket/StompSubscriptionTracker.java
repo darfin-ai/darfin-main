@@ -20,7 +20,8 @@ import java.util.regex.Pattern;
 
 /**
  * STOMP 세션 구독/해제를 추적해서
- *  1) /topic/detail/{code}/execution 구독자가 생기면 KIS 상세(체결+호가) 구독을 켜고, 없어지면 끈다.
+ *  1) /topic/detail/{code}/execution 또는 /orderbook 구독자가 생기면
+ *     KIS 상세(체결+호가) 구독을 켜고, 둘 다 없어지면 끈다.
  *  2) /topic/price/{code} 구독 코드 전체 집합을 노출해 랭크 스케줄러가 실제 KIS 구독 대상을 계산할 때 쓴다.
  *  3) 연결된 세션 수를 노출해 "아무도 안 보고 있으면 KIS 호출 생략" 판단에 쓴다.
  */
@@ -29,7 +30,7 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class StompSubscriptionTracker {
 
-    private static final Pattern DETAIL_EXECUTION = Pattern.compile("^/topic/detail/([^/]+)/execution$");
+    private static final Pattern DETAIL = Pattern.compile("^/topic/detail/([^/]+)/(?:execution|orderbook)$");
     private static final Pattern PRICE = Pattern.compile("^/topic/price/([^/]+)$");
 
     private final KisRealtimeClient kisRealtimeClient;
@@ -41,6 +42,8 @@ public class StompSubscriptionTracker {
     private final Map<String, Map<String, String>> sessionSubscriptions = new ConcurrentHashMap<>();
     // 현재 연결된 STOMP 세션 id 집합
     private final Set<String> connectedSessions = ConcurrentHashMap.newKeySet();
+    // execution/orderbook 중 하나라도 구독 중인 상세 종목 — 동시 구독 이벤트의 중복 시작/종료 방지
+    private final Set<String> activeDetailCodes = ConcurrentHashMap.newKeySet();
 
     @EventListener
     public void handleSubscribe(SessionSubscribeEvent event) {
@@ -62,9 +65,12 @@ public class StompSubscriptionTracker {
         if (!firstSubscriber) return;
         if (destinationSubscribers.get(destination).size() > 1) return; // 이미 다른 세션이 구독 중
 
-        Matcher detailMatcher = DETAIL_EXECUTION.matcher(destination);
+        Matcher detailMatcher = DETAIL.matcher(destination);
         if (detailMatcher.matches()) {
-            kisRealtimeClient.addDetailCode(detailMatcher.group(1));
+            String code = detailMatcher.group(1);
+            if (activeDetailCodes.add(code)) {
+                kisRealtimeClient.addDetailCode(code);
+            }
             return;
         }
 
@@ -109,9 +115,12 @@ public class StompSubscriptionTracker {
         if (!subscribers.isEmpty()) return;
 
         destinationSubscribers.remove(destination);
-        Matcher detailMatcher = DETAIL_EXECUTION.matcher(destination);
+        Matcher detailMatcher = DETAIL.matcher(destination);
         if (detailMatcher.matches()) {
-            kisRealtimeClient.removeDetailCode(detailMatcher.group(1));
+            String code = detailMatcher.group(1);
+            if (countDetailSubscribers(code) == 0 && activeDetailCodes.remove(code)) {
+                kisRealtimeClient.removeDetailCode(code);
+            }
             return;
         }
 
@@ -133,6 +142,17 @@ public class StompSubscriptionTracker {
 
     public boolean hasActiveSessions() {
         return !connectedSessions.isEmpty();
+    }
+
+    private int countDetailSubscribers(String code) {
+        int count = 0;
+        for (Map.Entry<String, Set<String>> entry : destinationSubscribers.entrySet()) {
+            Matcher matcher = DETAIL.matcher(entry.getKey());
+            if (matcher.matches() && code.equals(matcher.group(1))) {
+                count += entry.getValue().size();
+            }
+        }
+        return count;
     }
 
     private String subscriptionKey(String sessionId, String subscriptionId) {
