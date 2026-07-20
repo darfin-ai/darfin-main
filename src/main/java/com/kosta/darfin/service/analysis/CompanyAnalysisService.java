@@ -530,23 +530,6 @@ public class CompanyAnalysisService {
     }
 
     /**
-     * overview가 없거나(파이프라인 미처리), 있어도 aiInsightsReady가
-     * false(1단계 결정론적 패널만 채워지고 findings/risks/insight 등 LLM
-     * 산출물은 아직)면 false. 필드 자체가 없는 구버전 행(이번 세션 초기에
-     * 원자적으로 완성된 삼성전자/SK하이닉스 등)은 이미 완료된 것으로
-     * 간주(하위 호환) — dart_pipeline.db: filings_for_ai_insights()와
-     * 동일한 규칙.
-     */
-    @SuppressWarnings("unchecked")
-    private boolean isAiInsightsReady(Object overview) {
-        if (!(overview instanceof Map)) {
-            return false;
-        }
-        Object flag = ((Map<String, Object>) overview).get("aiInsightsReady");
-        return !Boolean.FALSE.equals(flag);
-    }
-
-    /**
      * company_overview에서 최소한으로 파생 — 파이프라인이 아직 profile 전용
      * 필드를 만들지 않아서(알려진 한계). governanceNotes는 생성 로직이 없어 빈 문자열.
      */
