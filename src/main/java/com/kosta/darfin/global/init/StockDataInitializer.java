@@ -18,6 +18,11 @@ public class StockDataInitializer implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
+        int normalized = dartApiService.normalizeKnownCompanyNames();
+        if (normalized > 0) {
+            log.info("[Stock] 기업 표시명 {}건 정규화 완료", normalized);
+        }
+
         long count = stockRepository.count();
         if (count > 0) {
             log.info("[Stock] 기업 데이터 {}개 이미 존재 — 동기화 건너뜀", count);

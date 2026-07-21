@@ -27,6 +27,9 @@ import java.util.zip.ZipInputStream;
 @RequiredArgsConstructor
 public class DartApiService {
 
+    private static final String SK_HYNIX_STOCK_CODE = "000660";
+    private static final String SK_HYNIX_DISPLAY_NAME = "SK하이닉스";
+
     @Value("${dart.api.key}")
     private String apiKey;
 
@@ -112,7 +115,7 @@ public class DartApiService {
 
                 stocks.add(Stock.builder()
                         .dartCorpCode(corpCode)
-                        .companyName(corpName != null ? corpName : "")
+                        .companyName(canonicalCompanyName(stockCode, corpName))
                         .stockCode(stockCode == null || stockCode.isBlank() ? null : stockCode)
                         .marketType(null)
                         .build());
@@ -127,6 +130,26 @@ public class DartApiService {
         NodeList nl = el.getElementsByTagName(tag);
         if (nl.getLength() == 0) return null;
         return nl.item(0).getTextContent().trim();
+    }
+
+    static String canonicalCompanyName(String stockCode, String corpName) {
+        if (SK_HYNIX_STOCK_CODE.equals(stockCode)) {
+            return SK_HYNIX_DISPLAY_NAME;
+        }
+        return corpName != null ? corpName : "";
+    }
+
+    /**
+     * 이미 저장된 외부 원본 표기명을 서비스 표시명으로 교정합니다.
+     * 애플리케이션 시작 시 실행되며 같은 값으로의 갱신은 발생하지 않습니다.
+     */
+    public int normalizeKnownCompanyNames() {
+        return jdbcTemplate.update(
+                "UPDATE stock SET company_name = ? WHERE stock_code = ? AND company_name <> ?",
+                SK_HYNIX_DISPLAY_NAME,
+                SK_HYNIX_STOCK_CODE,
+                SK_HYNIX_DISPLAY_NAME
+        );
     }
 
     // MariaDB ON DUPLICATE KEY UPDATE로 upsert 처리 (dartCorpCode unique 컬럼 기준)
