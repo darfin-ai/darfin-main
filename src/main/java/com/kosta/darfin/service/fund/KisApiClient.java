@@ -26,22 +26,27 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * KIS Open API 모의투자 환경 클라이언트.
+ * KIS Open API 시세 조회(현재가/호가/체결) 클라이언트.
  * Spring Boot 2.7.18 기준이라 RestClient(3.2+ 전용) 대신 RestTemplate 사용.
- * TR_ID, 도메인은 모의투자(openapivts) 기준.
+ * 여기서 만드는 모의투자 계좌는 실제 KIS 계좌로 주문을 내지 않고 이 앱 DB에서만
+ * 체결을 시뮬레이션하므로(PaperTradingService 참고), 이 클라이언트는 주문 관련
+ * API를 전혀 호출하지 않는다 — 오직 시세 조회(현재가/호가/체결)만 담당한다.
+ * KIS 모의투자(openapivts) 도메인은 실시간 시세 데이터가 불안정해(호가가 비거나
+ * 0으로 오는 경우가 확인됨) KisRealtimeClient(WebSocket)와 동일하게 실전(real)
+ * 앱키·도메인을 쓴다 — 실전 앱키는 시세 조회 전용이라 사용해도 실거래 위험이 없다.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class KisApiClient {
 
-    @Value("${kis.mock.app-key}")
+    @Value("${kis.real.app-key}")
     private String appKey;
 
-    @Value("${kis.mock.app-secret}")
+    @Value("${kis.real.app-secret}")
     private String appSecret;
 
-    @Value("${kis.mock.base-url}")
+    @Value("${kis.real.base-url}")
     private String kisBaseUrl;
 
     private final RestTemplate restTemplate = new RestTemplate();
@@ -50,7 +55,7 @@ public class KisApiClient {
     private final AtomicReference<String> cachedToken = new AtomicReference<>();
     private final AtomicLong tokenExpiryEpochMs = new AtomicLong(0);
 
-    // KIS mock API rate limit: 250ms 간격 (호출 간 최소 대기)
+    // KIS API rate limit 방어용 최소 호출 간격 (실전/모의 공통으로 안전한 보수적 값)
     private final Object callLock = new Object();
     private volatile long lastCallTime = 0;
     private static final long CALL_INTERVAL_MS = 250;
@@ -68,7 +73,6 @@ public class KisApiClient {
 
     /**
      * EGW00201(초당 거래건수 초과) 발생 시 1초 대기 후 1회 재시도.
-     * 모의투자 API는 rate limit 창이 짧아 짧은 대기만으로 해소된다.
      */
     private ResponseEntity<String> exchangeWithRetry(String url, HttpHeaders headers) {
         HttpEntity<Void> req = new HttpEntity<>(headers);
@@ -149,7 +153,7 @@ public class KisApiClient {
 
             return StockBasicInfo.builder()
                     .stockCode(stockCode)
-                    .stockName(o.path("hts_kor_isnm").asText())     // 모의투자 응답엔 보통 빈값 → stock 테이블로 보완
+                    .stockName(o.path("hts_kor_isnm").asText())     // 비어 있으면 호출부가 stock 테이블 값으로 보완
                     .market(o.path("rprs_mrkt_kor_name").asText())  // 예: "KOSPI200"
                     .sector(o.path("bstp_kor_isnm").asText())       // 예: "전기·전자"
                     .marketCap(o.path("hts_avls").asLong(0) * 100_000_000L)
