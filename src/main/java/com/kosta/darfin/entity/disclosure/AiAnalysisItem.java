@@ -45,7 +45,7 @@ public class AiAnalysisItem {
 
     private Integer tokensOut;
 
-    @Column(columnDefinition = "json")
+    @Column(columnDefinition = "LONGTEXT")
     private String extra;
 
     @Column(nullable = false, updatable = false)
