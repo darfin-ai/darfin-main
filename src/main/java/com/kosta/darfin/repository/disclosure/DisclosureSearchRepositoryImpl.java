@@ -15,7 +15,6 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Repository;
 
-import java.time.LocalDate;
 import java.util.List;
 
 
@@ -70,28 +69,6 @@ public class DisclosureSearchRepositoryImpl implements DisclosureSearchRepositor
                 .fetchOne();
 
         return new PageImpl<>(content, pageable, total == null ? 0 : total);
-    }
-
-    @Override
-    public boolean existsCollected(String companyNameOrCode, LocalDate dateFrom, LocalDate dateTo) {
-        QDisclosure d = QDisclosure.disclosure;
-        QStock s = QStock.stock;
-
-        BooleanExpression dateCondition = (dateFrom == null || dateTo == null)
-                ? null
-                : d.filedAt.between(dateFrom, dateTo);
-
-        Integer one = queryFactory
-                .selectOne()
-                .from(d)
-                .join(d.stock, s)
-                .where(
-                        companyNameOrStockCodeMatches(s, companyNameOrCode),
-                        dateCondition
-                )
-                .fetchFirst();
-
-        return one != null;
     }
 
     /** "기업명 또는 종목코드" 입력 한 칸으로 두 컬럼(stock.companyName, stock.stockCode) 모두 매칭 */
