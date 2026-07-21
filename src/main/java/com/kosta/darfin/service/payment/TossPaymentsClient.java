@@ -48,10 +48,19 @@ public class TossPaymentsClient {
 
         String billingKey = (String) res.get("billingKey");
         Map<String, Object> card = asMap(res.get("card"));
-        String cardCompany = card != null ? String.valueOf(card.get("company")) : "UNKNOWN";
-        String maskedCardNumber = card != null ? String.valueOf(card.get("number")) : "";
+        // "company" 필드가 없는 응답(예: issuerCode만 내려오는 케이스)에서
+        // String.valueOf(null)이 문자열 "null"을 반환해 그대로 저장되던 버그 수정.
+        String cardCompany = card != null
+                ? asText(card.get("company"), asText(card.get("issuerCode"), "UNKNOWN"))
+                : "UNKNOWN";
+        String maskedCardNumber = card != null ? asText(card.get("number"), "") : "";
 
         return new BillingKeyResult(billingKey, cardCompany, maskedCardNumber);
+    }
+
+    // Object가 null이면 defaultValue를 반환한다 — String.valueOf(null)이 "null" 문자열을 반환하는 함정을 막기 위함.
+    private String asText(Object value, String defaultValue) {
+        return value != null ? String.valueOf(value) : defaultValue;
     }
 
     // 저장된 billingKey로 정기결제 청구

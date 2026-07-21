@@ -5,6 +5,7 @@ import com.kosta.darfin.entity.payment.PaymentMethods;
 import com.kosta.darfin.repository.common.UsersRepository;
 import com.kosta.darfin.repository.payment.PaymentMethodsRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -52,7 +53,15 @@ public class PaymentMethodService {
         Users user = resolveAuthenticatedUser(email);
         PaymentMethods method = paymentMethodsRepository.findByIdAndUser_Id(methodId, user.getId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "결제 수단을 찾을 수 없습니다."));
-        paymentMethodsRepository.delete(method);
+        try {
+            // payments 테이블이 이 결제수단을 참조 중이면 FK 제약조건 위반이 발생하므로,
+            // flush로 즉시 실행시켜 이 트랜잭션 안에서 잡아 명확한 에러로 변환한다.
+            paymentMethodsRepository.delete(method);
+            paymentMethodsRepository.flush();
+        } catch (DataIntegrityViolationException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "결제 이력이 있는 카드는 삭제할 수 없습니다. 다른 카드를 기본 결제수단으로 설정해주세요.");
+        }
     }
 
     @Transactional
