@@ -45,6 +45,7 @@ public class SecurityConfig {
                 .accessDeniedHandler(accessDeniedHandler())
             .and()
             .authorizeRequests()
+                .antMatchers("/health").permitAll()
                 .antMatchers("/funds/watchlist/**").authenticated()
                 .antMatchers("/funds/paper/**").authenticated()
                 .antMatchers("/funds/paper-trading/**").authenticated()

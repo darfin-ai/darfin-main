@@ -1,0 +1,9 @@
+.git
+.gradle
+build
+bin
+.vscode
+.idea
+*.iml
+HELP.md
+README.md

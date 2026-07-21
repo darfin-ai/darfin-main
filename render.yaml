@@ -1,0 +1,57 @@
+services:
+  - type: web
+    name: darfin-main
+    runtime: docker
+    plan: starter
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: render
+      - key: PORT
+        value: 8080
+      - key: LLM_SERVICE_BASE_URL
+        value: https://darfin-disclosure.onrender.com
+      - key: DDL_AUTO
+        value: validate
+      - key: JWT_ACCESS_EXPIRATION
+        value: 3600000
+      - key: JWT_REFRESH_EXPIRATION
+        value: 1209600000
+      - key: DB_URL
+        sync: false
+      - key: DB_USERNAME
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: MAIL_USERNAME
+        sync: false
+      - key: MAIL_PASSWORD
+        sync: false
+      - key: KAKAO_CLIENT_ID
+        sync: false
+      - key: KAKAO_CLIENT_SECRET
+        sync: false
+      - key: KAKAO_REDIRECT_URI
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
+      - key: DART_API_KEY
+        sync: false
+      - key: KIS_MOCK_APP_KEY
+        sync: false
+      - key: KIS_MOCK_APP_SECRET
+        sync: false
+      - key: KIS_REAL_APP_KEY
+        sync: false
+      - key: KIS_REAL_APP_SECRET
+        sync: false
+      - key: TOSS_SECRET_KEY
+        sync: false
