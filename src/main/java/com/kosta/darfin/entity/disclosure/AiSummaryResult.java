@@ -31,7 +31,7 @@ public class AiSummaryResult {
     @Column(nullable = false)
     private Byte riskTier;
 
-    @Column(columnDefinition = "json")
+    @Column(columnDefinition = "LONGTEXT")
     private String extra;
 
     private Integer compressedContextChars;

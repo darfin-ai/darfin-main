@@ -24,7 +24,7 @@ public class AiReports {
     @JoinColumn(name = "user_id", nullable = false)
     private Users user;
 
-    @Column(columnDefinition = "json")
+    @Column(columnDefinition = "LONGTEXT")
     private String healthScore;
 
     @Column(length = 50)

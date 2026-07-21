@@ -42,7 +42,7 @@ public class Disclosure {
     @Column(length = 300)
     private String rawTextPath;
 
-    @Column(columnDefinition = "json")
+    @Column(columnDefinition = "LONGTEXT")
     private String missingTargets;
 
     @Column(nullable = false)
