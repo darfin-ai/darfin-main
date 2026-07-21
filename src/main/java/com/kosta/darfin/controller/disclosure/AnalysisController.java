@@ -41,7 +41,7 @@ public class AnalysisController {
         // LLM 호출 전에 잔액만 미리 확인해 실패할 결제를 걸러내고, 실제 과금은 생성 성공 후에만 한다.
         tokenBillingService.assertSufficientBalance(userDetails.getUsername(), UNLOCK_TOKEN_COST);
 
-        AnalysisResult result = analysisService.analyzeAndSave(
+        AnalysisResult result = analysisService.getOrGenerate(
                 req.getRceptNo(), req.getCorpName(), req.getDartFullText());
 
         if (!result.success) {

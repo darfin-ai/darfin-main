@@ -37,6 +37,25 @@ public class AnalysisService {
         this.riskNormalizer = riskNormalizer;
     }
 
+    /**
+     * SummaryService.getOrGenerate()와 동일한 캐시 우선 정책 — 이미 분석된 rceptNo면
+     * LLM을 다시 호출하지 않고 저장된 결과를 그대로 반환한다.
+     */
+    @Transactional
+    public AnalysisResult getOrGenerate(String rceptNo, String corpName, String dartFullText) {
+        List<AiAnalysisItem> existing = analysisItemRepo.findByDisclosure_RceptNoOrderByItemNoAsc(rceptNo);
+        if (!existing.isEmpty()) {
+            log.info("[DB HIT] rceptNo={}", rceptNo);
+            Short droppedCount = disclosureRepo.findById(rceptNo)
+                    .map(Disclosure::getDroppedCount)
+                    .orElse((short) 0);
+            return AnalysisResult.ok(existing.size(), droppedCount == null ? 0 : droppedCount);
+        }
+
+        log.info("[DB MISS] LLM 서비스 호출 rceptNo={}", rceptNo);
+        return analyzeAndSave(rceptNo, corpName, dartFullText);
+    }
+
     @Transactional
     public AnalysisResult analyzeAndSave(String rceptNo, String corpName, String dartFullText) {
         Disclosure disclosure = disclosureRepo.findById(rceptNo)
