@@ -30,7 +30,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class PortfolioAnalysisService {
 
-    @Value("${llm.service.base-url:http://127.0.0.1:8001}")
+    @Value("${analysis.service.base-url:http://127.0.0.1:8001}")
     private String llmServiceBaseUrl;
 
     private final RestTemplate restTemplate;

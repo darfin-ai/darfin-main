@@ -13,6 +13,8 @@ services:
         value: 8080
       - key: LLM_SERVICE_BASE_URL
         value: https://darfin-disclosure.onrender.com
+      - key: ANALYSIS_SERVICE_BASE_URL
+        value: https://darfin-investment.onrender.com
       - key: DDL_AUTO
         value: validate
       - key: JWT_ACCESS_EXPIRATION
