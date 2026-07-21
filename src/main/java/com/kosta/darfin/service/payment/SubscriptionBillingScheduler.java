@@ -41,7 +41,8 @@ public class SubscriptionBillingScheduler {
     private final TossPaymentsClient tossPaymentsClient;
     private final MailService mailService;
 
-    @Scheduled(cron = "0 0 1 * * *")
+    // zone 미지정 시 JVM 기본 타임존(컨테이너 UTC)으로 평가되어 실제로는 한국시간 오전 10시에 실행되는 문제가 있었음
+    @Scheduled(cron = "0 0 1 * * *", zone = "Asia/Seoul")
     @Transactional
     public void runDailyBilling() {
         LocalDate today = LocalDate.now();
